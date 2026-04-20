@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import plotly.graph_objects as go
 import streamlit as st
 
-from app import get_conn
+from app import get_conn, query_df
 
 st.set_page_config(page_title="Head to Head — MLB Analytics", layout="wide")
 st.title("Head to Head")
@@ -19,11 +19,11 @@ if conn is None:
     st.stop()
 
 # ── Team selectors ────────────────────────────────────────────────────────────
-teams = conn.execute("""
+teams = query_df(conn, """
     SELECT DISTINCT team_name, team_abbrev
     FROM gold.dim_team
     ORDER BY team_name
-""").df()
+""")
 
 if teams.empty:
     conn.close()
@@ -47,10 +47,10 @@ season_choice = st.selectbox("Season", ["All"] + [str(s) for s in seasons])
 
 # ── Fetch IDs ─────────────────────────────────────────────────────────────────
 id_a = conn.execute(
-    "SELECT team_id FROM gold.dim_team WHERE team_name = ? LIMIT 1", [team_a]
+    "SELECT TOP 1 team_id FROM gold.dim_team WHERE team_name = ?", [team_a]
 ).fetchone()
 id_b = conn.execute(
-    "SELECT team_id FROM gold.dim_team WHERE team_name = ? LIMIT 1", [team_b]
+    "SELECT TOP 1 team_id FROM gold.dim_team WHERE team_name = ?", [team_b]
 ).fetchone()
 
 if not id_a or not id_b:
@@ -103,7 +103,7 @@ else:
 # ── Game log ──────────────────────────────────────────────────────────────────
 st.subheader("Game Log")
 
-log = conn.execute(f"""
+log = query_df(conn, f"""
     SELECT
         g.game_date,
         g.season_year AS season,
@@ -120,7 +120,7 @@ log = conn.execute(f"""
         OR (g.home_team_id = ? AND g.away_team_id = ?))
     {season_filter.replace('season_year', 'g.season_year')}
     ORDER BY g.game_date DESC
-""", [id_a, id_b, id_b, id_a]).df()
+""", [id_a, id_b, id_b, id_a])
 conn.close()
 
 if log.empty:

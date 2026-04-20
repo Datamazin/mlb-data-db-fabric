@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import streamlit as st
 
-from app import get_conn
+from app import get_conn, query_df
 
 st.set_page_config(page_title="Teams — MLB Analytics", layout="wide")
 st.title("Teams")
@@ -28,7 +28,7 @@ if not seasons:
 
 season = st.selectbox("Season", seasons)
 
-df = conn.execute("""
+df = query_df(conn, """
     SELECT
         team_name,
         team_abbrev,
@@ -41,7 +41,7 @@ df = conn.execute("""
     FROM gold.dim_team
     WHERE season_year = ?
     ORDER BY league_name, division_name, team_name
-""", [season]).df()
+""", [season])
 conn.close()
 
 for league in ["American League", "National League"]:

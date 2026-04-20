@@ -8,7 +8,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app import get_conn
+from app import get_conn, query_df
 
 st.set_page_config(page_title="Player Profile - MLB Analytics", layout="wide")
 
@@ -102,9 +102,10 @@ def _season_filter_sql(season: int | str) -> tuple[str, list[int]]:
 
 
 def _month_label_sql(season: int | str) -> str:
+    # Career: show YYYY-MM; single season: show abbreviated month name
     if season == "Career":
-        return "STRFTIME(DATE_TRUNC('month', sg.game_date), '%Y-%m')"
-    return "STRFTIME(DATE_TRUNC('month', sg.game_date), '%b')"
+        return "FORMAT(sg.game_date, 'yyyy-MM')"
+    return "FORMAT(sg.game_date, 'MMM')"
 
 
 current_player_id = st.session_state.get("profile_player_id")
@@ -252,7 +253,7 @@ try:
 
     teams_row = conn.execute(
         f"""
-        SELECT COALESCE(string_agg(team_abbrev, ', '), '-')
+        SELECT COALESCE(STRING_AGG(team_abbrev, ', ') WITHIN GROUP (ORDER BY team_abbrev), '-')
         FROM (
             SELECT DISTINCT team_abbrev
             FROM (
@@ -275,14 +276,14 @@ try:
                   {season_filter_sql}
                   AND sg.status = 'Final'
                   AND sg.game_type IN {game_type_sql}
-            )
-            ORDER BY team_abbrev
-        )
+            ) AS combined
+        ) AS unique_teams
         """,
         [player_id, *season_params, player_id, *season_params],
     ).fetchone()
 
-    batting_summary = conn.execute(
+    batting_summary = query_df(
+        conn,
         f"""
         SELECT
             COUNT(DISTINCT gb.game_pk) AS g,
@@ -295,12 +296,12 @@ try:
             SUM(gb.rbi) AS rbi,
             SUM(gb.walks) AS bb,
             SUM(gb.strikeouts) AS so,
-            ROUND(SUM(gb.hits)::DOUBLE / NULLIF(SUM(gb.at_bats), 0), 3) AS avg,
-            ROUND((SUM(gb.hits) + SUM(gb.walks))::DOUBLE / NULLIF(SUM(gb.at_bats) + SUM(gb.walks), 0), 3) AS obp,
-            ROUND((SUM(gb.hits) + SUM(gb.doubles) + 2 * SUM(gb.triples) + 3 * SUM(gb.home_runs))::DOUBLE / NULLIF(SUM(gb.at_bats), 0), 3) AS slg,
+            ROUND(SUM(gb.hits) * 1.0 / NULLIF(SUM(gb.at_bats), 0), 3) AS avg,
+            ROUND((SUM(gb.hits) + SUM(gb.walks)) * 1.0 / NULLIF(SUM(gb.at_bats) + SUM(gb.walks), 0), 3) AS obp,
+            ROUND((SUM(gb.hits) + SUM(gb.doubles) + 2 * SUM(gb.triples) + 3 * SUM(gb.home_runs)) * 1.0 / NULLIF(SUM(gb.at_bats), 0), 3) AS slg,
             ROUND(
-                (SUM(gb.hits) + SUM(gb.walks))::DOUBLE / NULLIF(SUM(gb.at_bats) + SUM(gb.walks), 0)
-                + (SUM(gb.hits) + SUM(gb.doubles) + 2 * SUM(gb.triples) + 3 * SUM(gb.home_runs))::DOUBLE / NULLIF(SUM(gb.at_bats), 0),
+                (SUM(gb.hits) + SUM(gb.walks)) * 1.0 / NULLIF(SUM(gb.at_bats) + SUM(gb.walks), 0)
+                + (SUM(gb.hits) + SUM(gb.doubles) + 2 * SUM(gb.triples) + 3 * SUM(gb.home_runs)) * 1.0 / NULLIF(SUM(gb.at_bats), 0),
                 3
             ) AS ops
         FROM silver.game_batting gb
@@ -311,9 +312,10 @@ try:
           AND sg.game_type IN {game_type_sql}
         """,
         [player_id, *season_params],
-    ).df()
+    )
 
-    pitching_summary = conn.execute(
+    pitching_summary = query_df(
+        conn,
         f"""
         SELECT
             COUNT(DISTINCT gp.game_pk) AS g,
@@ -342,13 +344,14 @@ try:
           AND sg.game_type IN {game_type_sql}
         """,
         [player_id, *season_params],
-    ).df()
+    )
 
-    batting_home_away = conn.execute(
+    batting_home_away = query_df(
+        conn,
         f"""
         SELECT
-            CASE WHEN gb.is_home THEN 'Home' ELSE 'Away' END AS split,
-            CASE WHEN gb.is_home THEN 1 ELSE 2 END AS sort_order,
+            CASE WHEN gb.is_home = 1 THEN 'Home' ELSE 'Away' END AS split,
+            CASE WHEN gb.is_home = 1 THEN 1 ELSE 2 END AS sort_order,
             COUNT(DISTINCT gb.game_pk) AS g,
             SUM(gb.at_bats) AS ab,
             SUM(gb.runs) AS r,
@@ -359,12 +362,12 @@ try:
             SUM(gb.rbi) AS rbi,
             SUM(gb.walks) AS bb,
             SUM(gb.strikeouts) AS so,
-            ROUND(SUM(gb.hits)::DOUBLE / NULLIF(SUM(gb.at_bats), 0), 3) AS avg,
-            ROUND((SUM(gb.hits) + SUM(gb.walks))::DOUBLE / NULLIF(SUM(gb.at_bats) + SUM(gb.walks), 0), 3) AS obp,
-            ROUND((SUM(gb.hits) + SUM(gb.doubles) + 2 * SUM(gb.triples) + 3 * SUM(gb.home_runs))::DOUBLE / NULLIF(SUM(gb.at_bats), 0), 3) AS slg,
+            ROUND(SUM(gb.hits) * 1.0 / NULLIF(SUM(gb.at_bats), 0), 3) AS avg,
+            ROUND((SUM(gb.hits) + SUM(gb.walks)) * 1.0 / NULLIF(SUM(gb.at_bats) + SUM(gb.walks), 0), 3) AS obp,
+            ROUND((SUM(gb.hits) + SUM(gb.doubles) + 2 * SUM(gb.triples) + 3 * SUM(gb.home_runs)) * 1.0 / NULLIF(SUM(gb.at_bats), 0), 3) AS slg,
             ROUND(
-                (SUM(gb.hits) + SUM(gb.walks))::DOUBLE / NULLIF(SUM(gb.at_bats) + SUM(gb.walks), 0)
-                + (SUM(gb.hits) + SUM(gb.doubles) + 2 * SUM(gb.triples) + 3 * SUM(gb.home_runs))::DOUBLE / NULLIF(SUM(gb.at_bats), 0),
+                (SUM(gb.hits) + SUM(gb.walks)) * 1.0 / NULLIF(SUM(gb.at_bats) + SUM(gb.walks), 0)
+                + (SUM(gb.hits) + SUM(gb.doubles) + 2 * SUM(gb.triples) + 3 * SUM(gb.home_runs)) * 1.0 / NULLIF(SUM(gb.at_bats), 0),
                 3
             ) AS ops
         FROM silver.game_batting gb
@@ -377,13 +380,14 @@ try:
         ORDER BY 2
         """,
         [player_id, *season_params],
-    ).df()
+    )
 
-    pitching_home_away = conn.execute(
+    pitching_home_away = query_df(
+        conn,
         f"""
         SELECT
-            CASE WHEN gp.is_home THEN 'Home' ELSE 'Away' END AS split,
-            CASE WHEN gp.is_home THEN 1 ELSE 2 END AS sort_order,
+            CASE WHEN gp.is_home = 1 THEN 'Home' ELSE 'Away' END AS split,
+            CASE WHEN gp.is_home = 1 THEN 1 ELSE 2 END AS sort_order,
             COUNT(DISTINCT gp.game_pk) AS g,
             SUM(gp.games_started) AS gs,
             SUM(gp.wins) AS w,
@@ -412,9 +416,10 @@ try:
         ORDER BY 2
         """,
         [player_id, *season_params],
-    ).df()
+    )
 
-    batting_vs_hand = conn.execute(
+    batting_vs_hand = query_df(
+        conn,
         f"""
         WITH opposing_starter AS (
             SELECT
@@ -449,12 +454,12 @@ try:
             SUM(gb.rbi) AS rbi,
             SUM(gb.walks) AS bb,
             SUM(gb.strikeouts) AS so,
-            ROUND(SUM(gb.hits)::DOUBLE / NULLIF(SUM(gb.at_bats), 0), 3) AS avg,
-            ROUND((SUM(gb.hits) + SUM(gb.walks))::DOUBLE / NULLIF(SUM(gb.at_bats) + SUM(gb.walks), 0), 3) AS obp,
-            ROUND((SUM(gb.hits) + SUM(gb.doubles) + 2 * SUM(gb.triples) + 3 * SUM(gb.home_runs))::DOUBLE / NULLIF(SUM(gb.at_bats), 0), 3) AS slg,
+            ROUND(SUM(gb.hits) * 1.0 / NULLIF(SUM(gb.at_bats), 0), 3) AS avg,
+            ROUND((SUM(gb.hits) + SUM(gb.walks)) * 1.0 / NULLIF(SUM(gb.at_bats) + SUM(gb.walks), 0), 3) AS obp,
+            ROUND((SUM(gb.hits) + SUM(gb.doubles) + 2 * SUM(gb.triples) + 3 * SUM(gb.home_runs)) * 1.0 / NULLIF(SUM(gb.at_bats), 0), 3) AS slg,
             ROUND(
-                (SUM(gb.hits) + SUM(gb.walks))::DOUBLE / NULLIF(SUM(gb.at_bats) + SUM(gb.walks), 0)
-                + (SUM(gb.hits) + SUM(gb.doubles) + 2 * SUM(gb.triples) + 3 * SUM(gb.home_runs))::DOUBLE / NULLIF(SUM(gb.at_bats), 0),
+                (SUM(gb.hits) + SUM(gb.walks)) * 1.0 / NULLIF(SUM(gb.at_bats) + SUM(gb.walks), 0)
+                + (SUM(gb.hits) + SUM(gb.doubles) + 2 * SUM(gb.triples) + 3 * SUM(gb.home_runs)) * 1.0 / NULLIF(SUM(gb.at_bats), 0),
                 3
             ) AS ops
         FROM silver.game_batting gb
@@ -471,12 +476,14 @@ try:
         ORDER BY 2
         """,
         [player_id, *season_params],
-    ).df()
+    )
 
-    batting_monthly = conn.execute(
+    # DATE_TRUNC → DATEFROMPARTS; STRFTIME → FORMAT
+    batting_monthly = query_df(
+        conn,
         f"""
         SELECT
-            DATE_TRUNC('month', sg.game_date)::DATE AS month_start,
+            CAST(DATEFROMPARTS(YEAR(sg.game_date), MONTH(sg.game_date), 1) AS DATE) AS month_start,
             {month_label_sql} AS month,
             COUNT(DISTINCT gb.game_pk) AS g,
             SUM(gb.at_bats) AS ab,
@@ -488,12 +495,12 @@ try:
             SUM(gb.rbi) AS rbi,
             SUM(gb.walks) AS bb,
             SUM(gb.strikeouts) AS so,
-            ROUND(SUM(gb.hits)::DOUBLE / NULLIF(SUM(gb.at_bats), 0), 3) AS avg,
-            ROUND((SUM(gb.hits) + SUM(gb.walks))::DOUBLE / NULLIF(SUM(gb.at_bats) + SUM(gb.walks), 0), 3) AS obp,
-            ROUND((SUM(gb.hits) + SUM(gb.doubles) + 2 * SUM(gb.triples) + 3 * SUM(gb.home_runs))::DOUBLE / NULLIF(SUM(gb.at_bats), 0), 3) AS slg,
+            ROUND(SUM(gb.hits) * 1.0 / NULLIF(SUM(gb.at_bats), 0), 3) AS avg,
+            ROUND((SUM(gb.hits) + SUM(gb.walks)) * 1.0 / NULLIF(SUM(gb.at_bats) + SUM(gb.walks), 0), 3) AS obp,
+            ROUND((SUM(gb.hits) + SUM(gb.doubles) + 2 * SUM(gb.triples) + 3 * SUM(gb.home_runs)) * 1.0 / NULLIF(SUM(gb.at_bats), 0), 3) AS slg,
             ROUND(
-                (SUM(gb.hits) + SUM(gb.walks))::DOUBLE / NULLIF(SUM(gb.at_bats) + SUM(gb.walks), 0)
-                + (SUM(gb.hits) + SUM(gb.doubles) + 2 * SUM(gb.triples) + 3 * SUM(gb.home_runs))::DOUBLE / NULLIF(SUM(gb.at_bats), 0),
+                (SUM(gb.hits) + SUM(gb.walks)) * 1.0 / NULLIF(SUM(gb.at_bats) + SUM(gb.walks), 0)
+                + (SUM(gb.hits) + SUM(gb.doubles) + 2 * SUM(gb.triples) + 3 * SUM(gb.home_runs)) * 1.0 / NULLIF(SUM(gb.at_bats), 0),
                 3
             ) AS ops
         FROM silver.game_batting gb
@@ -502,16 +509,19 @@ try:
           {season_filter_sql}
           AND sg.status = 'Final'
           AND sg.game_type IN {game_type_sql}
-        GROUP BY 1, 2
+        GROUP BY
+            CAST(DATEFROMPARTS(YEAR(sg.game_date), MONTH(sg.game_date), 1) AS DATE),
+            {month_label_sql}
         ORDER BY 1
         """,
         [player_id, *season_params],
-    ).df()
+    )
 
-    pitching_monthly = conn.execute(
+    pitching_monthly = query_df(
+        conn,
         f"""
         SELECT
-            DATE_TRUNC('month', sg.game_date)::DATE AS month_start,
+            CAST(DATEFROMPARTS(YEAR(sg.game_date), MONTH(sg.game_date), 1) AS DATE) AS month_start,
             {month_label_sql} AS month,
             COUNT(DISTINCT gp.game_pk) AS g,
             SUM(gp.games_started) AS gs,
@@ -537,11 +547,13 @@ try:
           {season_filter_sql}
           AND sg.status = 'Final'
           AND sg.game_type IN {game_type_sql}
-        GROUP BY 1, 2
+        GROUP BY
+            CAST(DATEFROMPARTS(YEAR(sg.game_date), MONTH(sg.game_date), 1) AS DATE),
+            {month_label_sql}
         ORDER BY 1
         """,
         [player_id, *season_params],
-    ).df()
+    )
 finally:
     conn.close()
 
@@ -641,21 +653,9 @@ with batting_tab:
             hide_index=True,
             use_container_width=True,
             column_config={
-                "split": "Split",
-                "g": "G",
-                "ab": "AB",
-                "r": "R",
-                "h": "H",
-                "doubles": "2B",
-                "triples": "3B",
-                "hr": "HR",
-                "rbi": "RBI",
-                "bb": "BB",
-                "so": "SO",
-                "avg": "AVG",
-                "obp": "OBP",
-                "slg": "SLG",
-                "ops": "OPS",
+                "split": "Split", "g": "G", "ab": "AB", "r": "R", "h": "H",
+                "doubles": "2B", "triples": "3B", "hr": "HR", "rbi": "RBI",
+                "bb": "BB", "so": "SO", "avg": "AVG", "obp": "OBP", "slg": "SLG", "ops": "OPS",
             },
         )
 
@@ -665,21 +665,9 @@ with batting_tab:
             hide_index=True,
             use_container_width=True,
             column_config={
-                "split": "Split",
-                "g": "G",
-                "ab": "AB",
-                "r": "R",
-                "h": "H",
-                "doubles": "2B",
-                "triples": "3B",
-                "hr": "HR",
-                "rbi": "RBI",
-                "bb": "BB",
-                "so": "SO",
-                "avg": "AVG",
-                "obp": "OBP",
-                "slg": "SLG",
-                "ops": "OPS",
+                "split": "Split", "g": "G", "ab": "AB", "r": "R", "h": "H",
+                "doubles": "2B", "triples": "3B", "hr": "HR", "rbi": "RBI",
+                "bb": "BB", "so": "SO", "avg": "AVG", "obp": "OBP", "slg": "SLG", "ops": "OPS",
             },
         )
 
@@ -689,21 +677,9 @@ with batting_tab:
             hide_index=True,
             use_container_width=True,
             column_config={
-                "month": "Month",
-                "g": "G",
-                "ab": "AB",
-                "r": "R",
-                "h": "H",
-                "doubles": "2B",
-                "triples": "3B",
-                "hr": "HR",
-                "rbi": "RBI",
-                "bb": "BB",
-                "so": "SO",
-                "avg": "AVG",
-                "obp": "OBP",
-                "slg": "SLG",
-                "ops": "OPS",
+                "month": "Month", "g": "G", "ab": "AB", "r": "R", "h": "H",
+                "doubles": "2B", "triples": "3B", "hr": "HR", "rbi": "RBI",
+                "bb": "BB", "so": "SO", "avg": "AVG", "obp": "OBP", "slg": "SLG", "ops": "OPS",
             },
         )
     else:
@@ -725,21 +701,9 @@ with pitching_tab:
             hide_index=True,
             use_container_width=True,
             column_config={
-                "split": "Split",
-                "g": "G",
-                "gs": "GS",
-                "w": "W",
-                "l": "L",
-                "sv": "SV",
-                "hld": "HLD",
-                "bs": "BS",
-                "ip": "IP",
-                "h": "H",
-                "r": "R",
-                "er": "ER",
-                "hr": "HR",
-                "bb": "BB",
-                "so": "SO",
+                "split": "Split", "g": "G", "gs": "GS", "w": "W", "l": "L",
+                "sv": "SV", "hld": "HLD", "bs": "BS", "ip": "IP",
+                "h": "H", "r": "R", "er": "ER", "hr": "HR", "bb": "BB", "so": "SO",
                 "era": st.column_config.NumberColumn("ERA", format="%.2f"),
                 "whip": st.column_config.NumberColumn("WHIP", format="%.3f"),
                 "k9": st.column_config.NumberColumn("K/9", format="%.1f"),
@@ -753,21 +717,9 @@ with pitching_tab:
             hide_index=True,
             use_container_width=True,
             column_config={
-                "month": "Month",
-                "g": "G",
-                "gs": "GS",
-                "w": "W",
-                "l": "L",
-                "sv": "SV",
-                "hld": "HLD",
-                "bs": "BS",
-                "ip": "IP",
-                "h": "H",
-                "r": "R",
-                "er": "ER",
-                "hr": "HR",
-                "bb": "BB",
-                "so": "SO",
+                "month": "Month", "g": "G", "gs": "GS", "w": "W", "l": "L",
+                "sv": "SV", "hld": "HLD", "bs": "BS", "ip": "IP",
+                "h": "H", "r": "R", "er": "ER", "hr": "HR", "bb": "BB", "so": "SO",
                 "era": st.column_config.NumberColumn("ERA", format="%.2f"),
                 "whip": st.column_config.NumberColumn("WHIP", format="%.3f"),
                 "k9": st.column_config.NumberColumn("K/9", format="%.1f"),

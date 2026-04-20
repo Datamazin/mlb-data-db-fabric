@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import plotly.express as px
 import streamlit as st
 
-from app import get_conn
+from app import get_conn, query_df
 
 st.set_page_config(page_title="Standings — MLB Analytics", layout="wide")
 st.title("Standings")
@@ -32,7 +32,7 @@ season_options = [r[0] for r in seasons]
 selected_season = st.selectbox("Season", season_options)
 
 # ── Fetch standings ───────────────────────────────────────────────────────────
-df = conn.execute("""
+df = query_df(conn, """
     SELECT
         s.team_id,
         t.team_name,
@@ -44,9 +44,9 @@ df = conn.execute("""
         s.win_pct,
         s.games_back,
         s.streak,
-        s.last_10_wins || '-' || s.last_10_losses AS last_10,
-        s.home_wins  || '-' || s.home_losses      AS home,
-        s.away_wins  || '-' || s.away_losses      AS away,
+        CONCAT(s.last_10_wins, '-', s.last_10_losses) AS last_10,
+        CONCAT(s.home_wins,    '-', s.home_losses)    AS home,
+        CONCAT(s.away_wins,    '-', s.away_losses)    AS away,
         s.run_diff
     FROM gold.standings_snap s
     JOIN gold.dim_team t ON s.team_id = t.team_id AND s.season_year = t.season_year
@@ -55,7 +55,7 @@ df = conn.execute("""
           SELECT MAX(snap_date) FROM gold.standings_snap WHERE season_year = ?
       )
     ORDER BY t.league_name, t.division_name, s.wins DESC
-""", [selected_season, selected_season]).df()
+""", [selected_season, selected_season])
 conn.close()
 
 if df.empty:

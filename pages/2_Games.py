@@ -9,7 +9,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from app import get_conn
+from app import get_conn, query_df
 
 st.set_page_config(page_title="Games — MLB Analytics", layout="wide")
 st.title("Games")
@@ -68,7 +68,7 @@ if home_team_filter != "All":
 
 where_clause = " AND ".join(where)
 
-df = conn.execute(f"""
+df = query_df(conn, f"""
     SELECT
         game_pk,
         game_date,
@@ -84,7 +84,7 @@ df = conn.execute(f"""
     FROM gold.fact_game
     WHERE {where_clause}
     ORDER BY game_date DESC, game_pk DESC
-""", params).df()
+""", params)
 
 st.write(f"{len(df):,} games — click a row to view boxscore")
 
@@ -129,20 +129,20 @@ if selected_rows:
          wp_first, wp_last, lp_first, lp_last, sv_first, sv_last) = game
 
         st.divider()
+        game_date_str = f"{game_date.strftime('%B')} {game_date.day}, {game_date.year}"
         st.subheader(
-            f"{away_name} @ {home_name}  —  "
-            f"{game_date.strftime('%B %-d, %Y')}  —  {venue_name}"
+            f"{away_name} @ {home_name}  —  {game_date_str}  —  {venue_name}"
         )
 
         # Linescore
-        linescore = conn.execute("""
+        linescore = query_df(conn, """
             SELECT inning,
                    away_runs, away_hits, away_errors,
                    home_runs, home_hits, home_errors
             FROM silver.game_linescore
             WHERE game_pk = ?
             ORDER BY inning
-        """, [game_pk]).df()
+        """, [game_pk])
 
         if not linescore.empty:
             max_inn = max(9, int(linescore["inning"].max()))
@@ -272,10 +272,10 @@ table.linescore tr:hover td.total { background: #1f1f3a; }
             }
 
             def _fetch_batting(is_home: bool) -> pd.DataFrame:
-                return conn.execute("""
+                return query_df(conn, """
                     SELECT
                         CASE WHEN gb.batting_order % 100 != 0
-                             THEN '  ' || p.full_name
+                             THEN '  ' + p.full_name
                              ELSE p.full_name
                         END                  AS "Batter",
                         gb.position_abbrev   AS "Pos",
@@ -292,8 +292,10 @@ table.linescore tr:hover td.total { background: #1f1f3a; }
                     FROM silver.game_batting gb
                     JOIN silver.players p ON gb.player_id = p.player_id
                     WHERE gb.game_pk = ? AND gb.is_home = ?
-                    ORDER BY gb.batting_order NULLS LAST
-                """, [game_pk, is_home]).df()
+                    ORDER BY
+                        CASE WHEN gb.batting_order IS NULL THEN 1 ELSE 0 END,
+                        gb.batting_order
+                """, [game_pk, 1 if is_home else 0])
 
             away_bat = _fetch_batting(False)
             home_bat = _fetch_batting(True)
@@ -316,7 +318,7 @@ if team_filter != "All" and not df.empty:
     st.divider()
     st.subheader(f"Run Differential — {team_filter} ({season})")
 
-    trend = conn.execute("""
+    trend = query_df(conn, """
         SELECT
             game_date,
             game_pk,
@@ -329,7 +331,7 @@ if team_filter != "All" and not df.empty:
           AND status = 'Final'
           AND (home_team_name = ? OR away_team_name = ?)
         ORDER BY game_date, game_pk
-    """, [team_filter, season, team_filter, team_filter]).df()
+    """, [team_filter, season, team_filter, team_filter])
 
     trend["cumulative_rd"] = trend["run_diff"].cumsum()
 

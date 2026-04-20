@@ -16,12 +16,8 @@ env/
 # uv.lock  ← intentionally NOT ignored (reproducible installs)
 # .python-version ← intentionally NOT ignored (pins interpreter)
 
-# DuckDB files — data/ is local only; never commit raw data or the DB artifact
-# Exception: the gold artifact is committed for Streamlit Cloud deployment
+# data/ is local only — never commit raw data
 data/
-!data/gold/
-!data/gold/mlb.duckdb
-*.duckdb.wal
 
 # Parquet / Arrow
 *.parquet
