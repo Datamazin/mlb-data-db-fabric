@@ -12,9 +12,20 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+import os
+
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# On Streamlit Cloud, secrets are not auto-injected as env vars — do it here
+# so get_warehouse_conn() and get_onelake_fs() can read them via os.getenv().
+try:
+    import streamlit as _st
+    for _k, _v in _st.secrets.items():
+        os.environ.setdefault(_k, str(_v))
+except Exception:
+    pass
 
 from src.connections import get_warehouse_conn
 
