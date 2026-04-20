@@ -28,6 +28,9 @@ data/
 .env.*
 !.env.example
 
+# Streamlit secrets (never commit — paste into Streamlit Cloud dashboard instead)
+.streamlit/secrets.toml
+
 # Azure credentials
 *.pem
 *.key
