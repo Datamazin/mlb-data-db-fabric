@@ -33,6 +33,9 @@ make test-integration   # integration tests only (requires Fabric connection)
 make lint               # ruff check
 make fmt                # ruff check --fix + ruff format
 make typecheck          # mypy
+make backfill           # extract 2022–2025 historical data to OneLake
+make scheduler          # start APScheduler daemon
+make run-nightly        # trigger nightly_incremental once (yesterday's date)
 ```
 
 ### Targeted pytest runs
@@ -48,7 +51,8 @@ uv run pytest tests/integration/test_aggregate.py::TestStandingsSnap
 ```bash
 uv run python -m src.transformer.transform [--scripts 007_games.sql] [--force] [--dry-run]
 uv run python -m src.aggregator.aggregate  [--scripts 008_standings_snap.sql] [--force] [--dry-run]
-uv run python migrations/migrate.py
+uv run python migrations/migrate.py [--dry-run]
+uv run python -m src.extractor.backfill [--seasons 2022 2023 2024 2025]
 uv run python -m src.scheduler.jobs [--run nightly_incremental] [--date YYYY-MM-DD]
 uv run python scripts/explore_api.py
 ```
@@ -71,7 +75,7 @@ MLB Stats API  →  EXTRACTION (Python/httpx)  →  OneLake bronze/ (raw Parquet
 
 ### Layers
 
-1. **Extraction (`src/extractor/`)** — calls the public MLB Stats API with `httpx` + asyncio, validates responses with Pydantic models, writes partitioned bronze Parquet to **OneLake** via `adlfs.AzureBlobFileSystem`. `MLBClient` enforces the token-bucket rate limit (8 req/s) and tenacity retry policy.
+1. **Extraction (`src/extractor/`)** — calls the public MLB Stats API with `httpx` + asyncio, validates responses with Pydantic models (`src/extractor/models/`), writes partitioned bronze Parquet to **OneLake** via the custom `OneLakeFileSystem` wrapper in `src/connections.py`. `MLBClient` enforces the token-bucket rate limit (8 req/s) and tenacity retry policy. `game_batting.py` and `game_pitching.py` extract per-player stats from game feed JSON into silver directly (bypassing the staging loader pattern).
 
 2. **Staging (`src/transformer/staging.py`)** — for each silver script that needs bronze data, a Python loader reads Parquet from OneLake, applies JSON extraction / type coercion / deduplication in pandas, then creates a `staging.*` table in Fabric Warehouse via pyodbc and bulk-inserts the cleaned rows. `STAGING_REGISTRY` maps script filenames to their loader function.
 
@@ -90,7 +94,7 @@ MLB Stats API  →  EXTRACTION (Python/httpx)  →  OneLake bronze/ (raw Parquet
 All connection helpers live in `src/connections.py`:
 
 - `get_warehouse_conn()` — returns a `pyodbc.Connection` to Fabric Warehouse. Uses `FABRIC_CONNECTION_STRING` env var directly, or builds from `FABRIC_SERVER` + `FABRIC_DATABASE` + `FABRIC_AUTH`. Supports `ActiveDirectoryMsi` (Fabric notebooks / Managed Identity) and `ActiveDirectoryServicePrincipal` (local dev / CI).
-- `get_onelake_fs()` — returns an `adlfs.AzureBlobFileSystem` pointed at OneLake (`account_name="onelake"`, `DefaultAzureCredential`).
+- `get_onelake_fs()` — returns a custom `OneLakeFileSystem` (defined in `connections.py`), a thin wrapper around `azure-storage-blob` with `glob()`, `open()`, and `exists()` methods. Uses `DefaultAzureCredential` by default.
 - `get_bronze_root()` — returns the OneLake path prefix (`{ONELAKE_WORKSPACE_ID}/{ONELAKE_LAKEHOUSE_NAME}.Lakehouse/Files/bronze`).
 
 ---
@@ -103,11 +107,10 @@ Fabric Warehouse
 ├── schema: staging      -- Ephemeral load tables (created/dropped per transform run)
 ├── schema: silver       -- Cleaned, typed, deduplicated entities
 ├── schema: gold         -- Aggregated & fan-ready (PRIMARY consumer layer)
-│   ├── dim_player, dim_team, dim_venue           (views)
-│   ├── fact_game, fact_batting, fact_pitching    (views)
-│   ├── fact_fielding, fact_pitch_mix             (views)
-│   ├── leaderboards, player_season_summary       (views)
-│   ├── standings_snap, league_averages, head_to_head  (materialized tables)
+│   ├── dim_player, dim_team, dim_venue                (views)
+│   ├── fact_game, fact_batting, fact_pitching         (views)
+│   ├── leaderboards, player_season_summary, head_to_head  (views)
+│   ├── standings_snap, league_averages, dim_player, dim_team  (materialized tables)
 └── schema: meta         -- Pipeline run tracking & data lineage
     ├── pipeline_runs, entity_checksums
     ├── _silver_transforms, _gold_aggregations
@@ -188,6 +191,12 @@ Key differences from DuckDB SQL that appear throughout this codebase:
 `S` = Spring Training, `R` = Regular Season, `F` = Wild Card, `D` = Division Series, `L` = Championship Series, `W` = World Series
 
 Spring Training is captured but excluded from official stats by default.
+
+---
+
+## Streamlit Analytics App
+
+`app.py` + `pages/` — a multi-page Streamlit frontend that queries the gold layer directly via `get_warehouse_conn()`. Pages use relative imports from `app.py`. Run with `uv run streamlit run app.py`.
 
 ---
 

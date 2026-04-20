@@ -1,48 +1,43 @@
 """
-CLI backfill — populate silver.game_batting from all bronze game Parquet files.
+CLI backfill — populate silver.game_batting from all bronze game Parquet files on OneLake.
 
 Usage:
     uv run python scripts/populate_game_batting.py
-    uv run python scripts/populate_game_batting.py --db path/to/mlb.duckdb
 """
 
 from __future__ import annotations
 
-import argparse
-import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import duckdb
-from transformer.game_batting import populate_from_files
+from dotenv import load_dotenv
 
-DEFAULT_DB = Path(os.getenv("GOLD_DB_PATH", "data/gold/mlb.duckdb"))
-BRONZE = Path(os.getenv("BRONZE_PATH", "data/bronze")) / "games"
+load_dotenv()
+
+from src.connections import get_bronze_root, get_onelake_fs, get_warehouse_conn
+from src.transformer.game_batting import populate_from_files
 
 
-def run(db_path: Path) -> None:
-    conn = duckdb.connect(str(db_path))
-    parquet_files = sorted(BRONZE.glob("year=*/month=*/*.parquet"))
-    if not parquet_files:
-        print(f"No bronze game files found under {BRONZE}")
+def run() -> None:
+    conn = get_warehouse_conn()
+    fs = get_onelake_fs()
+    bronze_root = get_bronze_root()
+
+    pattern = f"{bronze_root}/games/year=*/month=*/*.parquet"
+    file_paths = fs.glob(pattern)
+
+    if not file_paths:
+        print(f"No bronze game files found matching {pattern}")
         conn.close()
         return
 
-    print(f"Processing {len(parquet_files)} file(s) into silver.game_batting …")
-    total = populate_from_files(conn, parquet_files)
+    print(f"Processing {len(file_paths)} file(s) into silver.game_batting …")
+    total = populate_from_files(conn, fs, file_paths)
     conn.close()
     print(f"\nDone — {total:,} batting rows written to silver.game_batting")
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Populate silver.game_batting from bronze.")
-    parser.add_argument("--db", type=Path, default=DEFAULT_DB)
-    args = parser.parse_args()
-    print(f"Database: {args.db}")
-    run(args.db)
-
-
 if __name__ == "__main__":
-    main()
+    run()

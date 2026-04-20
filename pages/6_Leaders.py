@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import streamlit as st
 
-from app import get_conn
+from app import get_conn, query_df
 
 st.set_page_config(page_title="Leaders — MLB Analytics", layout="wide")
 st.title("Leaders")
@@ -50,7 +50,6 @@ GAME_TYPE_MAP: dict[str, str] = {
 }
 
 BAT_SORT: dict[str, tuple[str, bool]] = {
-    # label → (column, descending)
     "HR":  ("hr",      True),
     "AVG": ("avg",     True),
     "OPS": ("ops",     True),
@@ -68,13 +67,12 @@ BAT_SORT: dict[str, tuple[str, bool]] = {
 }
 
 PIT_SORT: dict[str, tuple[str, bool]] = {
-    # label → (column, descending)  False = ascending (lower is better)
     "ERA":  ("era",  False),
     "SO":   ("so",   True),
     "WHIP": ("whip", False),
     "W":    ("w",    True),
     "SV":   ("sv",   True),
-    "IP":   ("outs", True),   # sort by raw outs for correct ordering
+    "IP":   ("outs", True),
     "BB":   ("bb",   False),
     "HR":   ("hr",   False),
     "HLD":  ("hld",  True),
@@ -161,42 +159,50 @@ with hit_tab:
 
     bat_col, bat_desc = BAT_SORT[bat_sort_label]
 
+    # MODE() replaced with correlated subquery; ANY_VALUE() replaced with MIN()
     batting_sql = f"""
         SELECT
             p.player_id,
             p.full_name,
-            MODE(gb.position_abbrev)
-                FILTER (WHERE gb.position_abbrev NOT IN {NON_POSITIONS})  AS pos,
+            (
+                SELECT TOP 1 sub.position_abbrev
+                FROM silver.game_batting sub
+                WHERE sub.player_id = p.player_id
+                  AND sub.position_abbrev NOT IN ('PH', 'PR')
+                  AND sub.position_abbrev IS NOT NULL
+                GROUP BY sub.position_abbrev
+                ORDER BY COUNT(*) DESC
+            ) AS pos,
             CASE WHEN COUNT(DISTINCT t.team_abbrev) > 1 THEN '2TM'
-                 ELSE ANY_VALUE(t.team_abbrev) END                        AS team,
-            COUNT(DISTINCT gb.game_pk)                                    AS g,
-            SUM(gb.at_bats)                                               AS ab,
-            SUM(gb.runs)                                                   AS r,
-            SUM(gb.hits)                                                   AS h,
-            SUM(gb.doubles)                                               AS doubles,
-            SUM(gb.triples)                                               AS triples,
-            SUM(gb.home_runs)                                             AS hr,
-            SUM(gb.rbi)                                                   AS rbi,
-            SUM(gb.walks)                                                  AS bb,
-            SUM(gb.strikeouts)                                            AS so,
-            ROUND(SUM(gb.hits)::DOUBLE
-                  / NULLIF(SUM(gb.at_bats), 0), 3)                       AS avg,
-            ROUND((SUM(gb.hits) + SUM(gb.walks))::DOUBLE
-                  / NULLIF(SUM(gb.at_bats) + SUM(gb.walks), 0), 3)      AS obp,
+                 ELSE MIN(t.team_abbrev) END                                      AS team,
+            COUNT(DISTINCT gb.game_pk)                                            AS g,
+            SUM(gb.at_bats)                                                       AS ab,
+            SUM(gb.runs)                                                          AS r,
+            SUM(gb.hits)                                                          AS h,
+            SUM(gb.doubles)                                                       AS doubles,
+            SUM(gb.triples)                                                       AS triples,
+            SUM(gb.home_runs)                                                     AS hr,
+            SUM(gb.rbi)                                                           AS rbi,
+            SUM(gb.walks)                                                         AS bb,
+            SUM(gb.strikeouts)                                                    AS so,
+            ROUND(SUM(gb.hits) * 1.0
+                  / NULLIF(SUM(gb.at_bats), 0), 3)                               AS avg,
+            ROUND((SUM(gb.hits) + SUM(gb.walks)) * 1.0
+                  / NULLIF(SUM(gb.at_bats) + SUM(gb.walks), 0), 3)              AS obp,
             ROUND((SUM(gb.hits)
                    + SUM(gb.doubles)
                    + 2 * SUM(gb.triples)
-                   + 3 * SUM(gb.home_runs))::DOUBLE
-                  / NULLIF(SUM(gb.at_bats), 0), 3)                       AS slg,
+                   + 3 * SUM(gb.home_runs)) * 1.0
+                  / NULLIF(SUM(gb.at_bats), 0), 3)                               AS slg,
             ROUND(
-                (SUM(gb.hits) + SUM(gb.walks))::DOUBLE
+                (SUM(gb.hits) + SUM(gb.walks)) * 1.0
                     / NULLIF(SUM(gb.at_bats) + SUM(gb.walks), 0)
                 + (SUM(gb.hits)
                    + SUM(gb.doubles)
                    + 2 * SUM(gb.triples)
-                   + 3 * SUM(gb.home_runs))::DOUBLE
+                   + 3 * SUM(gb.home_runs)) * 1.0
                     / NULLIF(SUM(gb.at_bats), 0),
-                3)                                                        AS ops
+                3)                                                                AS ops
         FROM silver.game_batting gb
         JOIN silver.games        sg ON gb.game_pk   = sg.game_pk
         JOIN silver.players       p ON gb.player_id  = p.player_id
@@ -210,7 +216,7 @@ with hit_tab:
     """
 
     try:
-        df_bat = conn.execute(batting_sql).df()
+        df_bat = query_df(conn, batting_sql)
     except Exception as exc:
         conn.close()
         st.error(f"Batting query error: {exc}")
@@ -249,33 +255,29 @@ with pitch_tab:
             gp.player_id,
             p.full_name,
             CASE WHEN COUNT(DISTINCT t.team_abbrev) > 1 THEN '2TM'
-                 ELSE ANY_VALUE(t.team_abbrev) END                               AS team,
-            COUNT(DISTINCT gp.game_pk)                                           AS g,
-            SUM(gp.games_started)                                                AS gs,
-            SUM(gp.wins)                                                          AS w,
-            SUM(gp.losses)                                                        AS l,
-            SUM(gp.saves)                                                         AS sv,
-            SUM(gp.holds)                                                         AS hld,
-            SUM(gp.blown_saves)                                                   AS bs,
-            SUM(gp.outs)                                                          AS outs,
-            SUM(gp.hits_allowed)                                                  AS h,
-            SUM(gp.runs_allowed)                                                  AS r,
-            SUM(gp.earned_runs)                                                   AS er,
-            SUM(gp.home_runs_allowed)                                             AS hr,
-            SUM(gp.walks)                                                          AS bb,
-            SUM(gp.strikeouts)                                                    AS so,
-            -- ERA = ER * 27 / outs  (since IP = outs/3, ERA = ER/IP*9)
+                 ELSE MIN(t.team_abbrev) END                                           AS team,
+            COUNT(DISTINCT gp.game_pk)                                                 AS g,
+            SUM(gp.games_started)                                                      AS gs,
+            SUM(gp.wins)                                                               AS w,
+            SUM(gp.losses)                                                             AS l,
+            SUM(gp.saves)                                                              AS sv,
+            SUM(gp.holds)                                                              AS hld,
+            SUM(gp.blown_saves)                                                        AS bs,
+            SUM(gp.outs)                                                               AS outs,
+            SUM(gp.hits_allowed)                                                       AS h,
+            SUM(gp.runs_allowed)                                                       AS r,
+            SUM(gp.earned_runs)                                                        AS er,
+            SUM(gp.home_runs_allowed)                                                  AS hr,
+            SUM(gp.walks)                                                              AS bb,
+            SUM(gp.strikeouts)                                                         AS so,
             ROUND(SUM(gp.earned_runs) * 27.0
-                  / NULLIF(SUM(gp.outs), 0), 2)                                  AS era,
-            -- WHIP = (BB + H) / IP = (BB + H) * 3 / outs
+                  / NULLIF(SUM(gp.outs), 0), 2)                                       AS era,
             ROUND((SUM(gp.walks) + SUM(gp.hits_allowed)) * 3.0
-                  / NULLIF(SUM(gp.outs), 0), 3)                                  AS whip,
-            -- K/9
+                  / NULLIF(SUM(gp.outs), 0), 3)                                       AS whip,
             ROUND(SUM(gp.strikeouts) * 27.0
-                  / NULLIF(SUM(gp.outs), 0), 1)                                  AS k9,
-            -- BB/9
+                  / NULLIF(SUM(gp.outs), 0), 1)                                       AS k9,
             ROUND(SUM(gp.walks) * 27.0
-                  / NULLIF(SUM(gp.outs), 0), 1)                                  AS bb9
+                  / NULLIF(SUM(gp.outs), 0), 1)                                       AS bb9
         FROM silver.game_pitching  gp
         JOIN silver.games          sg ON gp.game_pk   = sg.game_pk
         JOIN silver.players         p ON gp.player_id  = p.player_id
@@ -290,7 +292,7 @@ with pitch_tab:
     """
 
     try:
-        df_pit = conn.execute(pitching_sql).df()
+        df_pit = query_df(conn, pitching_sql)
     except Exception as exc:
         conn.close()
         st.error(f"Pitching query error: {exc}")
@@ -321,20 +323,16 @@ with hit_tab:
         if bat_col in {"avg", "obp", "slg", "ops"} and bat_min_ab == 0:
             st.caption("Tip: set Min AB to hide players with too few plate appearances.")
 
-        # ── Cast count stats to integers (DuckDB SUM returns float-nullable)
         for col in ("g", "ab", "r", "h", "doubles", "triples", "hr", "rbi", "bb", "so"):
             df_bat[col] = df_bat[col].fillna(0).astype(int)
 
-        # ── Combine player name + position into one column (e.g. "Yordan Alvarez  DH")
         df_bat["player"] = (
             df_bat["full_name"] + "  " + df_bat["pos"].fillna("")
         ).str.strip()
 
-        # ── Format rate stats as ".341" (no leading zero) matching MLB.com style
         def _fmt_rate(val: float | None) -> str:
-            if val is None or (isinstance(val, float) and val != val):  # NaN check
+            if val is None or (isinstance(val, float) and val != val):
                 return "—"
-            # OPS can exceed 1.000 — keep leading digit if so
             if abs(val) >= 1:
                 return f"{val:.3f}"
             return f".{int(round(val * 1000)):03d}"
@@ -343,33 +341,31 @@ with hit_tab:
             df_bat[stat] = df_bat[stat].apply(_fmt_rate)
 
         st.dataframe(
-            df_bat[
-                [
-                    "rank", "player", "team", "g", "ab", "r", "h",
-                    "doubles", "triples", "hr", "rbi", "bb", "so",
-                    "avg", "obp", "slg", "ops",
-                ]
-            ],
+            df_bat[[
+                "rank", "player", "team", "g", "ab", "r", "h",
+                "doubles", "triples", "hr", "rbi", "bb", "so",
+                "avg", "obp", "slg", "ops",
+            ]],
             width="stretch",
             hide_index=True,
             column_config={
-                "rank": st.column_config.NumberColumn("#", width="small"),
-                "player": st.column_config.TextColumn("Player", width="small"),
-                "team": st.column_config.TextColumn("Team", width="small"),
-                "g": st.column_config.NumberColumn("G", width="small"),
-                "ab": st.column_config.NumberColumn("AB", width="small"),
-                "r": st.column_config.NumberColumn("R", width="small"),
-                "h": st.column_config.NumberColumn("H", width="small"),
-                "doubles": st.column_config.NumberColumn("2B", width="small"),
-                "triples": st.column_config.NumberColumn("3B", width="small"),
-                "hr": st.column_config.NumberColumn("HR", width="small"),
-                "rbi": st.column_config.NumberColumn("RBI", width="small"),
-                "bb": st.column_config.NumberColumn("BB", width="small"),
-                "so": st.column_config.NumberColumn("SO", width="small"),
-                "avg": st.column_config.TextColumn("AVG", width="small"),
-                "obp": st.column_config.TextColumn("OBP", width="small"),
-                "slg": st.column_config.TextColumn("SLG", width="small"),
-                "ops": st.column_config.TextColumn("OPS", width="small"),
+                "rank":    st.column_config.NumberColumn("#",    width="small"),
+                "player":  st.column_config.TextColumn("Player", width="small"),
+                "team":    st.column_config.TextColumn("Team",   width="small"),
+                "g":       st.column_config.NumberColumn("G",    width="small"),
+                "ab":      st.column_config.NumberColumn("AB",   width="small"),
+                "r":       st.column_config.NumberColumn("R",    width="small"),
+                "h":       st.column_config.NumberColumn("H",    width="small"),
+                "doubles": st.column_config.NumberColumn("2B",   width="small"),
+                "triples": st.column_config.NumberColumn("3B",   width="small"),
+                "hr":      st.column_config.NumberColumn("HR",   width="small"),
+                "rbi":     st.column_config.NumberColumn("RBI",  width="small"),
+                "bb":      st.column_config.NumberColumn("BB",   width="small"),
+                "so":      st.column_config.NumberColumn("SO",   width="small"),
+                "avg":     st.column_config.TextColumn("AVG",   width="small"),
+                "obp":     st.column_config.TextColumn("OBP",   width="small"),
+                "slg":     st.column_config.TextColumn("SLG",   width="small"),
+                "ops":     st.column_config.TextColumn("OPS",   width="small"),
             },
         )
         st.caption(f"{len(df_bat):,} players — sorted by {bat_sort_label}")
@@ -396,7 +392,6 @@ with pitch_tab:
     if pit_min_ip > 0:
         df_pit = df_pit[df_pit["outs"] >= pit_min_ip * 3]
 
-    # Compute IP display string in Python (avoids DuckDB HUGEINT division quirks)
     df_pit["ip"] = df_pit["outs"].apply(lambda o: f"{int(o) // 3}.{int(o) % 3}")
 
     if df_pit.empty:
@@ -414,36 +409,34 @@ with pitch_tab:
             st.caption("Tip: set Min IP to hide pitchers with too few innings.")
 
         st.dataframe(
-            df_pit[
-                [
-                    "rank", "full_name", "team", "g", "gs", "w", "l", "sv", "hld", "bs",
-                    "ip", "h", "r", "er", "hr", "bb", "so", "era", "whip", "k9", "bb9",
-                ]
-            ],
+            df_pit[[
+                "rank", "full_name", "team", "g", "gs", "w", "l", "sv", "hld", "bs",
+                "ip", "h", "r", "er", "hr", "bb", "so", "era", "whip", "k9", "bb9",
+            ]],
             width="stretch",
             hide_index=True,
             column_config={
-                "rank": st.column_config.NumberColumn("#", width="small"),
-                "full_name": st.column_config.TextColumn("Player", width="small"),
-                "team": st.column_config.TextColumn("Team", width="small"),
-                "g": st.column_config.NumberColumn("G", width="small"),
-                "gs": st.column_config.NumberColumn("GS", width="small"),
-                "w": st.column_config.NumberColumn("W", width="small"),
-                "l": st.column_config.NumberColumn("L", width="small"),
-                "sv": st.column_config.NumberColumn("SV", width="small"),
-                "hld": st.column_config.NumberColumn("HLD", width="small"),
-                "bs": st.column_config.NumberColumn("BS", width="small"),
-                "ip": st.column_config.TextColumn("IP", width="small"),
-                "h": st.column_config.NumberColumn("H", width="small"),
-                "r": st.column_config.NumberColumn("R", width="small"),
-                "er": st.column_config.NumberColumn("ER", width="small"),
-                "hr": st.column_config.NumberColumn("HR", width="small"),
-                "bb": st.column_config.NumberColumn("BB", width="small"),
-                "so": st.column_config.NumberColumn("SO", width="small"),
-                "era": st.column_config.NumberColumn("ERA", format="%.2f", width="small"),
-                "whip": st.column_config.NumberColumn("WHIP", format="%.3f", width="small"),
-                "k9": st.column_config.NumberColumn("K/9", format="%.1f", width="small"),
-                "bb9": st.column_config.NumberColumn("BB/9", format="%.1f", width="small"),
+                "rank":      st.column_config.NumberColumn("#",     width="small"),
+                "full_name": st.column_config.TextColumn("Player",  width="small"),
+                "team":      st.column_config.TextColumn("Team",    width="small"),
+                "g":         st.column_config.NumberColumn("G",     width="small"),
+                "gs":        st.column_config.NumberColumn("GS",    width="small"),
+                "w":         st.column_config.NumberColumn("W",     width="small"),
+                "l":         st.column_config.NumberColumn("L",     width="small"),
+                "sv":        st.column_config.NumberColumn("SV",    width="small"),
+                "hld":       st.column_config.NumberColumn("HLD",   width="small"),
+                "bs":        st.column_config.NumberColumn("BS",    width="small"),
+                "ip":        st.column_config.TextColumn("IP",      width="small"),
+                "h":         st.column_config.NumberColumn("H",     width="small"),
+                "r":         st.column_config.NumberColumn("R",     width="small"),
+                "er":        st.column_config.NumberColumn("ER",    width="small"),
+                "hr":        st.column_config.NumberColumn("HR",    width="small"),
+                "bb":        st.column_config.NumberColumn("BB",    width="small"),
+                "so":        st.column_config.NumberColumn("SO",    width="small"),
+                "era":       st.column_config.NumberColumn("ERA",   format="%.2f", width="small"),
+                "whip":      st.column_config.NumberColumn("WHIP",  format="%.3f", width="small"),
+                "k9":        st.column_config.NumberColumn("K/9",   format="%.1f", width="small"),
+                "bb9":       st.column_config.NumberColumn("BB/9",  format="%.1f", width="small"),
             },
         )
         st.caption(f"{len(df_pit):,} pitchers — sorted by {pit_sort_label}")

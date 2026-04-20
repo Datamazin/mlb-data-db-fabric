@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import streamlit as st
 
-from app import get_conn
+from app import get_conn, query_df
 
 st.set_page_config(page_title="Players — MLB Analytics", layout="wide")
 st.title("Players")
@@ -81,7 +81,7 @@ if country != "All":
     params.append(country)
 
 if active_only:
-    where.append("active = true")
+    where.append("active = 1")
 
 where_clause = ("WHERE " + " AND ".join(where)) if where else ""
 
@@ -102,7 +102,7 @@ page = st.session_state.get("players_page", 1)
 
 # ── Fetch one page ────────────────────────────────────────────────────────────
 offset = (page - 1) * PAGE_SIZE
-df = conn.execute(f"""
+df = query_df(conn, f"""
     SELECT
         player_id,
         full_name,
@@ -119,8 +119,8 @@ df = conn.execute(f"""
     FROM gold.dim_player
     {where_clause}
     ORDER BY last_name, first_name
-    LIMIT {PAGE_SIZE} OFFSET {offset}
-""", params).df()
+    OFFSET {offset} ROWS FETCH NEXT {PAGE_SIZE} ROWS ONLY
+""", params)
 conn.close()
 df["position"] = df["position"].map(lambda p: POSITION_LABELS.get(p, p) if p else p)
 display_df = df.drop(columns=["player_id"])

@@ -6,15 +6,18 @@ Use `uv`; do not install with `pip` or hand-edit `requirements.txt`.
 
 ```bash
 make install            # uv sync --all-groups
-make migrate            # apply DuckDB schema migrations to data/gold/mlb.duckdb
+make migrate            # apply T-SQL schema migrations → Fabric Warehouse
 make transform          # run silver SQL transforms
 make aggregate          # run gold SQL aggregations
 make test               # full pytest suite
 make test-unit          # unit tests only
-make test-integration   # integration tests only
+make test-integration   # integration tests only (requires FABRIC_CONNECTION_STRING)
 make lint               # ruff check
 make fmt                # ruff check --fix + ruff format
 make typecheck          # mypy
+make backfill           # extract 2022–2025 historical data to OneLake
+make scheduler          # start APScheduler daemon
+make run-nightly        # trigger nightly_incremental once (yesterday)
 make streamlit          # launch the Streamlit frontend
 ```
 
@@ -28,22 +31,22 @@ uv run pytest tests/integration/test_jobs.py::TestStandingsSnapshot::test_snapsh
 
 ## High-level architecture
 
-This repository is a medallion-style MLB data pipeline:
+This repository is a medallion-style MLB data pipeline targeting **Azure Microsoft Fabric** (Fabric Warehouse + OneLake):
 
-1. **Extraction (`src/extractor/`)** calls the public MLB Stats API with `httpx` + asyncio, validates responses with Pydantic models, and writes partitioned bronze Parquet under `data/bronze/`. `MLBClient` enforces the token-bucket rate limit and retry policy. Game feeds use `/v1.1/game/{gamePk}/feed/live`, while most other endpoints are `/v1/...`.
-2. **Transformation (`src/transformer/` + `sql/silver/`)** loads bronze Parquet into typed DuckDB `silver` tables. The Python runner executes numbered SQL files in alphabetical order, substitutes `{bronze_path}`, `{year_glob}`, and `{month_glob}` placeholders, and records script checksums in `meta._silver_transforms`.
-3. **Aggregation (`src/aggregator/` + `sql/gold/`)** builds the consumer-facing `gold` layer from `silver`. Gold scripts are also checksum-tracked (`meta._gold_aggregations`) and are intended to be the only schema downstream consumers query.
-4. **State and idempotency (`src/run_tracker/`)** live inside the same DuckDB file. `meta.pipeline_runs` tracks job lifecycle; `meta.entity_checksums` is used to skip already-extracted entities and support safe re-runs.
-5. **Orchestration (`src/scheduler/jobs.py`)** wires the nightly pipeline: extract prior-day data, populate silver stats, run silver transforms, run gold aggregations, then publish the updated `data/gold/mlb.duckdb`.
-6. **Frontend (`app.py`, `pages/`)** is a Streamlit app that reads the gold layer from the DuckDB artifact with short-lived read-only connections.
+1. **Extraction (`src/extractor/`)** calls the public MLB Stats API with `httpx` + asyncio, validates responses with Pydantic models, and writes partitioned bronze Parquet to **OneLake** via the custom `OneLakeFileSystem` wrapper in `src/connections.py`. `MLBClient` enforces the token-bucket rate limit (8 req/s) and tenacity retry policy. Game feeds use `/v1.1/game/{gamePk}/feed/live`; most other endpoints are `/v1/...`. `game_batting.py` and `game_pitching.py` extract per-player stats from game feed JSON and MERGE them directly into `silver.game_batting` / `silver.game_pitching`.
+2. **Transformation (`src/transformer/` + `sql/silver/`)** loads bronze Parquet from OneLake into ephemeral `staging.*` tables in Fabric Warehouse (via pyodbc), then runs numbered T-SQL MERGE scripts to upsert into `silver.*`. The `STAGING_REGISTRY` dict maps script filenames to their Python loader. Staging tables are always dropped in `finally` blocks. Script checksums are recorded in `meta._silver_transforms`.
+3. **Aggregation (`src/aggregator/` + `sql/gold/`)** builds the consumer-facing `gold` layer from `silver`. Gold scripts are checksum-tracked in `meta._gold_aggregations`. Downstream consumers (Power BI, Streamlit) query `gold` only — never `bronze`, `silver`, or `staging`.
+4. **State and idempotency (`src/run_tracker/`)** live in Fabric Warehouse. `meta.pipeline_runs` tracks job lifecycle; `meta.entity_checksums` is used to skip already-extracted entities and support safe re-runs.
+5. **Orchestration (`src/scheduler/jobs.py`)** wires three APScheduler jobs: `nightly_incremental` (extract + transform + aggregate), `roster_sync`, `standings_snapshot`.
+6. **Frontend (`app.py`, `pages/`)** is a Streamlit app that reads the gold layer via `get_warehouse_conn()`. All pages import `get_conn` and `query_df` from `app.py`.
 
 ## Key conventions
 
-- Treat `data/gold/mlb.duckdb` as the main delivery artifact. Migrations, run tracking, silver tables, and gold tables all live in that file.
-- `bronze` is raw-but-typed Parquet, not the main query surface. Writers store flattened columns **and** the full `raw_json` blob so later transforms can recover fields without re-extracting.
-- Silver and gold loading is designed to be idempotent. The common pattern is `INSERT OR REPLACE` plus `QUALIFY ROW_NUMBER() OVER (...) ORDER BY extracted_at DESC` to keep the newest record.
-- Integration tests use **real DuckDB connections**, not mocked databases. Reuse fixtures from `tests/conftest.py` (`db`, `db_file`, `db_file_path`, `seeded_db`) instead of replacing DuckDB behavior with mocks.
-- SQL scripts are numbered and meant to run in filename order. If you add or change a transform/aggregation, keep the sequencing model instead of introducing ad hoc execution order in Python.
-- Scheduled jobs often force transform/aggregate reruns even when SQL is unchanged because the underlying data changed; checksum skipping alone is not enough for recurring loads.
-- Keep timestamps in UTC.
-- The Streamlit app must not hold a long-lived cached DuckDB connection; a persistent lock blocks the writer side of the nightly pipeline.
+- All connections go through `src/connections.py`: `get_warehouse_conn()` (pyodbc → Fabric Warehouse), `get_onelake_fs()` (custom `OneLakeFileSystem` → OneLake), `get_bronze_root()` (OneLake path prefix).
+- Bronze Parquet stores **both** typed columns and the full `raw_json` blob so staging loaders can recover nested fields without re-extracting.
+- Silver and gold loading is fully idempotent via T-SQL `MERGE ... WHEN MATCHED ... WHEN NOT MATCHED`. No `INSERT OR REPLACE`.
+- Integration tests use **real Fabric Warehouse connections**, not mocks. Set `FABRIC_CONNECTION_STRING` and run `make migrate` before running them. Tests skip automatically when no connection is configured.
+- SQL scripts are numbered and run in filename order. Keep the sequencing model.
+- Scheduled jobs pass `force=True` to transform/aggregate runs so data updates propagate even when the SQL checksum is unchanged.
+- All timestamps are UTC: `SYSDATETIMEOFFSET()` in T-SQL, `datetime.now(timezone.utc)` in Python.
+- T-SQL dialect: `CREATE OR ALTER VIEW`, `DATETIMEOFFSET`, `BIT`, `SYSDATETIMEOFFSET()`, `+` for string concat, `GO` batch separator, `OFFSET n ROWS FETCH NEXT n ROWS ONLY` for pagination.

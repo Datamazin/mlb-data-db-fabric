@@ -3,11 +3,20 @@ MLB Analytics — Streamlit frontend.
 Entry point / Home page. Run with: make streamlit
 """
 
-import os
+import sys
 from pathlib import Path
 
-import duckdb
+import pandas as pd
+import pyodbc
 import streamlit as st
+
+sys.path.insert(0, str(Path(__file__).parent))
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+from src.connections import get_warehouse_conn
 
 st.set_page_config(
     page_title="MLB Analytics",
@@ -15,31 +24,35 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-DB_PATH = Path(os.getenv("MLB_DB_PATH", "data/gold/mlb.duckdb"))
 
-
-def get_conn() -> duckdb.DuckDBPyConnection | None:
-    # Opens a fresh read-only connection per call. Do NOT cache with
-    # @st.cache_resource — a persistent connection holds a DuckDB file lock
-    # that blocks the nightly pipeline from acquiring its write lock.
-    if not DB_PATH.exists():
+def get_conn() -> pyodbc.Connection | None:
+    try:
+        return get_warehouse_conn()
+    except Exception:
         return None
-    return duckdb.connect(str(DB_PATH), read_only=True)
+
+
+def query_df(conn: pyodbc.Connection, sql: str, params=None) -> pd.DataFrame:
+    cursor = conn.cursor()
+    if params:
+        cursor.execute(sql, params)
+    else:
+        cursor.execute(sql)
+    cols = [d[0] for d in cursor.description]
+    return pd.DataFrame.from_records(cursor.fetchall(), columns=cols)
 
 
 def main() -> None:
     st.title("MLB Analytics")
-    st.caption(f"Database: {DB_PATH.resolve()}")
 
     conn = get_conn()
     if conn is None:
         st.error(
-            f"Database not found at `{DB_PATH}`. "
-            "Run `make migrate` then the pipeline to populate data."
+            "Could not connect to Fabric Warehouse. "
+            "Check FABRIC_CONNECTION_STRING and run `make migrate` to initialise the schema."
         )
         return
 
-    # ── Gather all data before rendering, then close the connection ──────────
     try:
         seasons = conn.execute(
             "SELECT COUNT(DISTINCT season_year) FROM gold.fact_game"
@@ -48,13 +61,13 @@ def main() -> None:
             "SELECT COUNT(*) FROM gold.fact_game WHERE status = 'Final'"
         ).fetchone()[0]
         total_teams = conn.execute(
-            "SELECT COUNT(DISTINCT team_id) FROM gold.dim_team WHERE active"
+            "SELECT COUNT(DISTINCT team_id) FROM gold.dim_team WHERE active = 1"
         ).fetchone()[0]
         total_players = conn.execute(
-            "SELECT COUNT(*) FROM gold.dim_player WHERE active"
+            "SELECT COUNT(*) FROM gold.dim_player WHERE active = 1"
         ).fetchone()[0]
 
-        recent = conn.execute("""
+        recent = query_df(conn, """
             SELECT
                 game_date,
                 away_team_abbrev  AS away,
@@ -67,23 +80,23 @@ def main() -> None:
             FROM gold.fact_game
             WHERE status = 'Final'
             ORDER BY game_date DESC, game_pk DESC
-            LIMIT 20
-        """).df()
+            OFFSET 0 ROWS FETCH NEXT 20 ROWS ONLY
+        """)
 
-        by_season = conn.execute("""
+        by_season = query_df(conn, """
             SELECT
-                season_year                                         AS season,
-                COUNT(*) FILTER (WHERE status = 'Final')           AS final,
-                COUNT(*) FILTER (WHERE game_type = 'R')            AS regular,
-                COUNT(*) FILTER (WHERE game_type IN ('F','D','L','W')) AS postseason
+                season_year                                                        AS season,
+                SUM(CASE WHEN status = 'Final' THEN 1 ELSE 0 END)                AS final,
+                SUM(CASE WHEN game_type = 'R' THEN 1 ELSE 0 END)                 AS regular,
+                SUM(CASE WHEN game_type IN ('F','D','L','W') THEN 1 ELSE 0 END)  AS postseason
             FROM gold.fact_game
             GROUP BY season_year
             ORDER BY season_year
-        """).df()
+        """)
     finally:
         conn.close()
 
-    # ── Summary metrics ──────────────────────────────────────────────────────
+    # ── Summary metrics ───────────────────────────────────────────────────────
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Seasons", seasons)
     c2.metric("Games (Final)", f"{total_games:,}")
@@ -92,7 +105,7 @@ def main() -> None:
 
     st.divider()
 
-    # ── Recent games ─────────────────────────────────────────────────────────
+    # ── Recent games ──────────────────────────────────────────────────────────
     st.subheader("Recent Results")
 
     if recent.empty:
@@ -114,7 +127,7 @@ def main() -> None:
             },
         )
 
-    # ── Season breakdown ─────────────────────────────────────────────────────
+    # ── Season breakdown ──────────────────────────────────────────────────────
     st.subheader("Games by Season")
 
     if not by_season.empty:
