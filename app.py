@@ -16,16 +16,18 @@ import os
 
 from dotenv import load_dotenv
 
-load_dotenv()
-
-# On Streamlit Cloud, secrets are not auto-injected as env vars — do it here
-# so get_warehouse_conn() and get_onelake_fs() can read them via os.getenv().
+# Streamlit Cloud: load secrets.toml into env vars as a baseline.
+# Uses setdefault so nothing is overwritten if already present.
 try:
     import streamlit as _st
     for _k, _v in _st.secrets.items():
         os.environ.setdefault(_k, str(_v))
 except Exception:
     pass
+
+# Local dev: .env takes precedence over secrets.toml (no-op on Streamlit Cloud
+# where no .env file exists).
+load_dotenv(override=True)
 
 from src.connections import get_warehouse_conn
 
@@ -39,7 +41,8 @@ st.set_page_config(
 def get_conn() -> pyodbc.Connection | None:
     try:
         return get_warehouse_conn()
-    except Exception:
+    except Exception as exc:
+        st.error(f"Connection error: {exc}")
         return None
 
 

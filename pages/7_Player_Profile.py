@@ -376,8 +376,9 @@ try:
           {season_filter_sql}
           AND sg.status = 'Final'
           AND sg.game_type IN {game_type_sql}
-        GROUP BY 1, 2
-        ORDER BY 2
+        GROUP BY CASE WHEN gb.is_home = 1 THEN 'Home' ELSE 'Away' END,
+                 CASE WHEN gb.is_home = 1 THEN 1 ELSE 2 END
+        ORDER BY CASE WHEN gb.is_home = 1 THEN 1 ELSE 2 END
         """,
         [player_id, *season_params],
     )
@@ -412,8 +413,9 @@ try:
           {season_filter_sql}
           AND sg.status = 'Final'
           AND sg.game_type IN {game_type_sql}
-        GROUP BY 1, 2
-        ORDER BY 2
+        GROUP BY CASE WHEN gp.is_home = 1 THEN 'Home' ELSE 'Away' END,
+                 CASE WHEN gp.is_home = 1 THEN 1 ELSE 2 END
+        ORDER BY CASE WHEN gp.is_home = 1 THEN 1 ELSE 2 END
         """,
         [player_id, *season_params],
     )
@@ -472,8 +474,9 @@ try:
           {season_filter_sql}
           AND sg.status = 'Final'
           AND sg.game_type IN {game_type_sql}
-        GROUP BY 1, 2
-        ORDER BY 2
+        GROUP BY CASE WHEN os.throws = 'L' THEN 'vs LHP' WHEN os.throws = 'R' THEN 'vs RHP' ELSE 'Unknown' END,
+                 CASE WHEN os.throws = 'L' THEN 1 WHEN os.throws = 'R' THEN 2 ELSE 3 END
+        ORDER BY CASE WHEN os.throws = 'L' THEN 1 WHEN os.throws = 'R' THEN 2 ELSE 3 END
         """,
         [player_id, *season_params],
     )
@@ -512,7 +515,7 @@ try:
         GROUP BY
             CAST(DATEFROMPARTS(YEAR(sg.game_date), MONTH(sg.game_date), 1) AS DATE),
             {month_label_sql}
-        ORDER BY 1
+        ORDER BY CAST(DATEFROMPARTS(YEAR(sg.game_date), MONTH(sg.game_date), 1) AS DATE)
         """,
         [player_id, *season_params],
     )
@@ -550,7 +553,7 @@ try:
         GROUP BY
             CAST(DATEFROMPARTS(YEAR(sg.game_date), MONTH(sg.game_date), 1) AS DATE),
             {month_label_sql}
-        ORDER BY 1
+        ORDER BY CAST(DATEFROMPARTS(YEAR(sg.game_date), MONTH(sg.game_date), 1) AS DATE)
         """,
         [player_id, *season_params],
     )
