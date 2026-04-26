@@ -145,7 +145,7 @@ if (Test-Path $dotEnvPath) {
         Write-Warning ".env file found but contained no non-empty variables - ensure credentials are filled in before starting the service."
     }
 } else {
-    Write-Warning ".env not found at $dotEnvPath - service will not have Fabric/Azure credentials. Copy .env.example to .env and fill it in, then rerun this script."
+    Write-Warning ".env not found at $dotEnvPath - service will not have Fabric/Azure credentials. Create .env with your credentials and rerun this script."
 }
 
 # ── 7. Start the service ──────────────────────────────────────────────────────

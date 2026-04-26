@@ -26,7 +26,6 @@ data/
 # Environment
 .env
 .env.*
-!.env.example
 
 # Streamlit secrets (never commit — paste into Streamlit Cloud dashboard instead)
 .streamlit/secrets.toml

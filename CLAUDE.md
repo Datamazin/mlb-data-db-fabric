@@ -18,7 +18,7 @@ An enterprise-grade ETL pipeline that ingests data from the official MLB Stats A
 uv sync --all-groups     # first-time or after pulling
 ```
 
-Copy `.env.example` to `.env` and fill in Fabric credentials before running anything that touches the warehouse or OneLake.
+Fill in `.env` with Fabric credentials before running anything that touches the warehouse or OneLake.
 
 ### Common commands
 

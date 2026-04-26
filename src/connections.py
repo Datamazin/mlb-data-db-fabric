@@ -230,3 +230,104 @@ def get_bronze_root() -> str:
     """Return the lakehouse-relative prefix for bronze parquet files in OneLake."""
     lakehouse_name = os.environ["ONELAKE_LAKEHOUSE_NAME"]
     return f"{lakehouse_name}.Lakehouse/Files/bronze"
+
+
+# ── Fabric Semantic Model (DAX via Power BI REST API) ─────────────────────────
+
+_POWERBI_SCOPE = "https://analysis.windows.net/powerbi/api/.default"
+_POWERBI_BASE = "https://api.powerbi.com/v1.0/myorg"
+
+# Module-level cache so workspace/dataset IDs are resolved only once per process.
+_pbi_cache: dict[str, str] = {}
+
+
+def _powerbi_token() -> str:
+    return _default_azure_credential().get_token(_POWERBI_SCOPE).token
+
+
+def _resolve_workspace_id(token: str, workspace_name: str) -> str:
+    import httpx
+
+    cache_key = f"ws:{workspace_name.lower()}"
+    if cache_key in _pbi_cache:
+        return _pbi_cache[cache_key]
+
+    # Try the env var first (ONELAKE_WORKSPACE_ID is the same Fabric workspace).
+    env_id = os.getenv("ONELAKE_WORKSPACE_ID")
+    if env_id:
+        _pbi_cache[cache_key] = env_id
+        return env_id
+
+    resp = httpx.get(
+        f"{_POWERBI_BASE}/groups",
+        params={"$filter": f"name eq '{workspace_name}'"},
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    items = resp.json().get("value", [])
+    if not items:
+        raise ValueError(f"Power BI workspace '{workspace_name}' not found")
+    _pbi_cache[cache_key] = items[0]["id"]
+    return _pbi_cache[cache_key]
+
+
+def _resolve_dataset_id(token: str, workspace_id: str, dataset_name: str) -> str:
+    import httpx
+
+    cache_key = f"ds:{workspace_id}:{dataset_name.lower()}"
+    if cache_key in _pbi_cache:
+        return _pbi_cache[cache_key]
+
+    resp = httpx.get(
+        f"{_POWERBI_BASE}/groups/{workspace_id}/datasets",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    for ds in resp.json().get("value", []):
+        if ds["name"].lower() == dataset_name.lower():
+            _pbi_cache[cache_key] = ds["id"]
+            return _pbi_cache[cache_key]
+    raise ValueError(f"Semantic model '{dataset_name}' not found in workspace '{workspace_id}'")
+
+
+def evaluate_dax(dax: str) -> "pd.DataFrame":
+    """Execute a DAX query against the configured Fabric semantic model.
+
+    Authenticates via DefaultAzureCredential (az login / VS Code / MSI / SP).
+
+    Example::
+
+        df = evaluate_dax("EVALUATE TOPN(10, 'fact_batting', [hits], DESC)")
+    """
+    import httpx
+    import pandas as pd
+
+    workspace_name = os.environ.get("FABRIC_WORKSPACE_NAME", "mlb")
+    dataset_name = os.environ.get("FABRIC_SEMANTIC_MODEL", "mlb model")
+
+    token = _powerbi_token()
+    workspace_id = _resolve_workspace_id(token, workspace_name)
+    dataset_id = _resolve_dataset_id(token, workspace_id, dataset_name)
+
+    resp = httpx.post(
+        f"{_POWERBI_BASE}/groups/{workspace_id}/datasets/{dataset_id}/executeQueries",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json={"queries": [{"query": dax}], "serializerSettings": {"includeNulls": True}},
+        timeout=120,
+    )
+    resp.raise_for_status()
+
+    rows = resp.json()["results"][0]["tables"][0].get("rows", [])
+    return pd.DataFrame(rows)
+
+
+def read_semantic_table(table_name: str) -> "pd.DataFrame":
+    """Read an entire table from the configured Fabric semantic model.
+
+    Example::
+
+        df = read_semantic_table("dim_player")
+    """
+    return evaluate_dax(f"EVALUATE '{table_name}'")
