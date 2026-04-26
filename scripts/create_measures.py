@@ -28,21 +28,168 @@ Environment variables::
 from __future__ import annotations
 
 import argparse
+import base64
 import os
 import sys
+import time
 from pathlib import Path
+from typing import Any
+
+import httpx
 
 # Allow running from the repo root without installing the package.
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.connections import (
-    _fabric_token,
-    _get_semantic_model_definition,
+    _default_azure_credential,
     _powerbi_token,
-    _resolve_semantic_model_id,
+    _resolve_dataset_id,
     _resolve_workspace_id,
-    _update_semantic_model_definition,
 )
+
+_FABRIC_SCOPE = "https://api.fabric.microsoft.com/.default"
+_FABRIC_BASE = "https://api.fabric.microsoft.com/v1"
+
+
+def _fabric_token() -> str:
+    """Return an access token for the Fabric REST API."""
+    return _default_azure_credential().get_token(_FABRIC_SCOPE).token
+
+
+def _resolve_semantic_model_id(
+    fabric_token: str,
+    powerbi_token: str,
+    workspace_id: str,
+    report_name: str,
+) -> str:
+    """Resolve semantic model id by name.
+
+    In Fabric/Power BI, semantic model ids align with dataset ids in the same workspace.
+    """
+    _ = fabric_token
+
+    # First, allow direct semantic-model (dataset) name lookups.
+    try:
+        return _resolve_dataset_id(powerbi_token, workspace_id, report_name)
+    except ValueError:
+        pass
+
+    # If the provided name is a report name, resolve its bound dataset id.
+    resp = httpx.get(
+        f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/reports",
+        headers={"Authorization": f"Bearer {powerbi_token}"},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    reports = resp.json().get("value", [])
+
+    wanted = report_name.strip().lower()
+    for report in reports:
+        name = str(report.get("name", "")).strip().lower()
+        if name == wanted and report.get("datasetId"):
+            return str(report["datasetId"])
+
+    available_reports = ", ".join(
+        sorted(str(r.get("name", "")) for r in reports if r.get("name"))
+    )
+    raise ValueError(
+        f"No semantic model or report named '{report_name}' found in workspace '{workspace_id}'. "
+        f"Available reports: [{available_reports}]"
+    )
+
+
+def _poll_lro(location_url: str, token: str, timeout_seconds: int = 180) -> dict[str, Any]:
+    """Poll a Fabric long-running operation URL until completion."""
+    deadline = time.time() + timeout_seconds
+    headers = {"Authorization": f"Bearer {token}"}
+    while time.time() < deadline:
+        resp = httpx.get(location_url, headers=headers, timeout=30)
+        resp.raise_for_status()
+        payload = resp.json() if resp.content else {}
+        status = str(payload.get("status", "")).lower()
+        if status in {"succeeded", "success", "completed"}:
+            return payload
+        if status in {"failed", "error", "cancelled"}:
+            raise RuntimeError(f"Fabric operation failed: {payload}")
+        time.sleep(2)
+    raise TimeoutError(f"Timed out waiting for Fabric operation: {location_url}")
+
+
+def _decode_definition_parts(parts: list[dict[str, Any]]) -> list[dict[str, str]]:
+    decoded: list[dict[str, str]] = []
+    for part in parts:
+        path = str(part.get("path", "")).strip()
+        payload = str(part.get("payload", ""))
+        payload_type = str(part.get("payloadType", "InlineBase64"))
+        if not path:
+            continue
+        if "base64" in payload_type.lower():
+            content = base64.b64decode(payload).decode("utf-8")
+        else:
+            content = payload
+        decoded.append({"path": path, "content": content})
+    return decoded
+
+
+def _get_semantic_model_definition(token: str, workspace_id: str, model_id: str) -> list[dict[str, str]]:
+    """Fetch the semantic model definition and return text parts as {path, content}."""
+    url = f"{_FABRIC_BASE}/workspaces/{workspace_id}/semanticModels/{model_id}/getDefinition"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    resp = httpx.post(url, headers=headers, json={}, timeout=60)
+
+    if resp.status_code == 202:
+        location = resp.headers.get("Location") or resp.headers.get("location")
+        if not location:
+            raise RuntimeError("Fabric getDefinition returned 202 without a Location header")
+        _poll_lro(location, token)
+        result_resp = httpx.get(f"{location}/result", headers=headers, timeout=60)
+        result_resp.raise_for_status()
+        payload = result_resp.json() if result_resp.content else {}
+    else:
+        resp.raise_for_status()
+        payload = resp.json() if resp.content else {}
+
+    definition = payload.get("definition", payload)
+    parts = definition.get("parts", []) if isinstance(definition, dict) else []
+    if not isinstance(parts, list):
+        raise RuntimeError(f"Unexpected getDefinition payload shape: {payload}")
+    return _decode_definition_parts(parts)
+
+
+def _update_semantic_model_definition(
+    token: str,
+    workspace_id: str,
+    model_id: str,
+    files: list[dict[str, str]],
+) -> None:
+    """Push an updated semantic model definition to Fabric."""
+    url = f"{_FABRIC_BASE}/workspaces/{workspace_id}/semanticModels/{model_id}/updateDefinition"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+    parts = [
+        {
+            "path": f["path"],
+            "payload": base64.b64encode(f["content"].encode("utf-8")).decode("ascii"),
+            "payloadType": "InlineBase64",
+        }
+        for f in files
+    ]
+
+    resp = httpx.post(
+        url,
+        headers=headers,
+        json={"definition": {"parts": parts}},
+        timeout=120,
+    )
+
+    if resp.status_code == 202:
+        location = resp.headers.get("Location") or resp.headers.get("location")
+        if not location:
+            raise RuntimeError("Fabric updateDefinition returned 202 without a Location header")
+        _poll_lro(location, token)
+        return
+
+    resp.raise_for_status()
 
 # ---------------------------------------------------------------------------
 # Fact tables and the numeric columns that get a SUM measure.
@@ -240,6 +387,7 @@ def create_measures(workspace_name: str, report_name: str, dry_run: bool) -> Non
     for table, columns in FACT_SUM_COLUMNS.items():
         # Fabric TMDL table files live under tables/<tableName>.tmdl
         candidate_paths = [
+            f"definition/tables/{table}.tmdl",
             f"tables/{table}.tmdl",
             f"model/{table}.tmdl",
             f"{table}.tmdl",

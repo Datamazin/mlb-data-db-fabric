@@ -266,10 +266,32 @@ def _resolve_workspace_id(token: str, workspace_name: str) -> str:
     )
     resp.raise_for_status()
     items = resp.json().get("value", [])
-    if not items:
-        raise ValueError(f"Power BI workspace '{workspace_name}' not found")
-    _pbi_cache[cache_key] = items[0]["id"]
-    return _pbi_cache[cache_key]
+    if items:
+        _pbi_cache[cache_key] = items[0]["id"]
+        return _pbi_cache[cache_key]
+
+    # Fallback: list all visible groups and match case-insensitively.
+    # Some tenants/workspaces can behave inconsistently with server-side filters.
+    all_groups_resp = httpx.get(
+        f"{_POWERBI_BASE}/groups",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=30,
+    )
+    all_groups_resp.raise_for_status()
+    groups = all_groups_resp.json().get("value", [])
+
+    wanted = workspace_name.strip().lower()
+    for grp in groups:
+        name = str(grp.get("name", "")).strip().lower()
+        if name == wanted:
+            _pbi_cache[cache_key] = grp["id"]
+            return _pbi_cache[cache_key]
+
+    visible_names = ", ".join(sorted(str(g.get("name", "")) for g in groups if g.get("name")))
+    raise ValueError(
+        f"Power BI workspace '{workspace_name}' not found. "
+        f"Visible workspaces: [{visible_names}]"
+    )
 
 
 def _resolve_dataset_id(token: str, workspace_id: str, dataset_name: str) -> str:
