@@ -91,15 +91,14 @@ async def nightly_incremental(
                 game_types=INCREMENTAL_GAME_TYPES,
             )
 
-            new_pks = tracker.filter_unextracted("game_feed", [str(pk) for pk in game_pks])
-            skipped = len(game_pks) - len(new_pks)
-            if skipped:
-                log.info("nightly_incremental_skip", skipped=skipped)
-
+            # Always re-extract all game feeds for the target date — the
+            # checksum gate is intentionally bypassed here because game data
+            # changes until a game reaches Final status. Backfill still uses
+            # filter_unextracted to skip already-completed historical games.
             extracted_count = 0
-            if new_pks:
+            if game_pks:
                 extracted_pks = await extract_game_feeds(
-                    client, writer, [int(pk) for pk in new_pks]
+                    client, writer, game_pks
                 )
                 extracted_count = len(extracted_pks)
                 tracker.record_checksums_bulk(
