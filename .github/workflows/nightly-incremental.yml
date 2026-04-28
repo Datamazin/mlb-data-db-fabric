@@ -1,0 +1,50 @@
+name: Nightly Incremental
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # 02:00 ET (UTC-4 during DST)
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Target date (YYYY-MM-DD). Defaults to yesterday."
+        required: false
+        type: string
+
+jobs:
+  run:
+    name: nightly_incremental
+    runs-on: ubuntu-latest
+    environment: production
+
+    env:
+      FABRIC_CONNECTION_STRING: ${{ secrets.FABRIC_CONNECTION_STRING }}
+      FABRIC_SERVER: ${{ secrets.FABRIC_SERVER }}
+      FABRIC_DATABASE: ${{ secrets.FABRIC_DATABASE }}
+      FABRIC_AUTH: ${{ secrets.FABRIC_AUTH }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ONELAKE_WORKSPACE_NAME: ${{ secrets.ONELAKE_WORKSPACE_NAME }}
+      ONELAKE_LAKEHOUSE_NAME: ${{ secrets.ONELAKE_LAKEHOUSE_NAME }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: sudo apt-get install -y unixodbc
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Run nightly_incremental
+        run: |
+          if [ -n "${{ inputs.date }}" ]; then
+            uv run python -m src.scheduler.jobs --run nightly_incremental --date "${{ inputs.date }}"
+          else
+            uv run python -m src.scheduler.jobs --run nightly_incremental
+          fi
