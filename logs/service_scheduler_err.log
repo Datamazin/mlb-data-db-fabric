@@ -1,0 +1,18 @@
+2026-05-02T16:08:16-0400 INFO apscheduler.scheduler Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-02T16:08:16-0400 INFO apscheduler.scheduler Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-02T16:08:16-0400 INFO apscheduler.scheduler Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-02T16:08:16-0400 INFO apscheduler.scheduler Added job "Nightly Incremental" to job store "default"
+2026-05-02T16:08:16-0400 INFO apscheduler.scheduler Added job "Roster Sync" to job store "default"
+2026-05-02T16:08:16-0400 INFO apscheduler.scheduler Added job "Standings Snapshot" to job store "default"
+2026-05-02T16:08:16-0400 INFO apscheduler.scheduler Scheduler started
+2026-05-02T16:08:16-0400 INFO __main__ {"event": "scheduler_started", "jobs": ["nightly_incremental", "standings_snapshot", "roster_sync"], "level": "info", "logger": "__main__", "timestamp": "2026-05-02T20:08:16.601743Z"}
+2026-05-02T16:09:50-0400 INFO __main__ {"event": "scheduler_stopped", "level": "info", "logger": "__main__", "timestamp": "2026-05-02T20:09:50.656779Z"}
+2026-05-02T16:09:50-0400 INFO apscheduler.scheduler Scheduler has been shut down
+2026-05-02T16:09:57-0400 INFO apscheduler.scheduler Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-02T16:09:57-0400 INFO apscheduler.scheduler Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-02T16:09:57-0400 INFO apscheduler.scheduler Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-02T16:09:57-0400 INFO apscheduler.scheduler Added job "Nightly Incremental" to job store "default"
+2026-05-02T16:09:57-0400 INFO apscheduler.scheduler Added job "Roster Sync" to job store "default"
+2026-05-02T16:09:57-0400 INFO apscheduler.scheduler Added job "Standings Snapshot" to job store "default"
+2026-05-02T16:09:57-0400 INFO apscheduler.scheduler Scheduler started
+2026-05-02T16:09:57-0400 INFO __main__ {"event": "scheduler_started", "jobs": ["nightly_incremental", "standings_snapshot", "roster_sync"], "level": "info", "logger": "__main__", "timestamp": "2026-05-02T20:09:57.266045Z"}

@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<!-- saved from url=(0057)file:///C:/Users/metsy/Downloads/mlb_scores_boxscore.html -->
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MLB Scores — May 2, 2026</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg-primary: #ffffff;
+    --bg-secondary: #f5f5f3;
+    --bg-info: #e6f1fb;
+    --text-primary: #1a1a1a;
+    --text-secondary: #6b6b68;
+    --text-tertiary: #9b9b97;
+    --text-info: #185fa5;
+    --border-light: rgba(0,0,0,0.12);
+    --border-medium: rgba(0,0,0,0.22);
+    --accent-blue: #185fa5;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg-primary: #1e1e1c;
+      --bg-secondary: #2a2a28;
+      --bg-info: #0c2744;
+      --text-primary: #f0ede8;
+      --text-secondary: #a8a8a4;
+      --text-tertiary: #6b6b68;
+      --text-info: #6aabf7;
+      --border-light: rgba(255,255,255,0.1);
+      --border-medium: rgba(255,255,255,0.2);
+      --accent-blue: #6aabf7;
+    }
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    padding: 2rem 1rem;
+    min-height: 100vh;
+  }
+
+  h1 {
+    font-size: 22px;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+  }
+
+  .page-subtitle {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 1.5rem;
+  }
+
+  .max-w {
+    max-width: 900px;
+    margin: 0 auto;
+  }
+
+  /* ── FILTER BUTTONS ── */
+  .filters {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+  }
+
+  .filter-btn {
+    font-size: 12px;
+    padding: 4px 12px;
+    border: 0.5px solid var(--border-medium);
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.12s;
+  }
+
+  .filter-btn.active,
+  .filter-btn:hover {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border-color: var(--border-medium);
+  }
+
+  /* ── GAME CARDS GRID ── */
+  .games-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 10px;
+    margin-bottom: 1.25rem;
+  }
+
+  .game-card {
+    background: var(--bg-primary);
+    border: 0.5px solid var(--border-light);
+    border-radius: var(--radius-lg);
+    padding: 12px 16px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+
+  .game-card:hover {
+    border-color: var(--border-medium);
+  }
+
+  .game-card.selected {
+    border-color: var(--accent-blue);
+    border-width: 2px;
+  }
+
+  .team-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 3px 0;
+  }
+
+  .team-name {
+    font-size: 14px;
+    color: var(--text-primary);
+    min-width: 150px;
+  }
+
+  .team-name.winner { font-weight: 500; }
+
+  .team-score {
+    font-size: 18px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    min-width: 28px;
+    text-align: right;
+  }
+
+  .team-score.winner { color: var(--accent-blue); }
+
+  .card-divider {
+    height: 0.5px;
+    background: var(--border-light);
+    margin: 5px 0;
+  }
+
+  .game-meta {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-top: 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: var(--radius-md);
+    background: var(--bg-info);
+    color: var(--text-info);
+  }
+
+  /* ── SUMMARY METRICS ── */
+  .metrics-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 10px;
+    margin-bottom: 2rem;
+  }
+
+  .metric-card {
+    background: var(--bg-primary);
+    border-radius: var(--radius-md);
+    padding: 10px 14px;
+  }
+
+  .metric-label {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+  }
+
+  .metric-value {
+    font-size: 22px;
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+
+  .metric-value.small { font-size: 14px; }
+
+  /* ── SECTION DIVIDER ── */
+  .section-sep {
+    height: 0.5px;
+    background: var(--border-light);
+    margin: 2rem 0 1.5rem;
+  }
+
+  .section-header {
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+  }
+
+  .section-sub {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 1rem;
+  }
+
+  /* ── BOX SCORE TABS ── */
+  .tabs {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+
+  .tab-btn {
+    font-size: 12px;
+    padding: 5px 14px;
+    border: 0.5px solid var(--border-medium);
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.12s;
+  }
+
+  .tab-btn.active {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+  }
+
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* ── LINESCORE TABLE ── */
+  .section-label {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin: 14px 0 8px;
+  }
+
+  .boxscore-wrap {
+    background: var(--bg-primary);
+    border: 0.5px solid var(--border-light);
+    border-radius: var(--radius-lg);
+    padding: 16px;
+  }
+
+  .game-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .game-title { font-size: 16px; font-weight: 500; }
+  .game-detail { font-size: 12px; color: var(--text-secondary); margin-left: 8px; }
+  .extras-badge {
+    font-size: 11px;
+    padding: 3px 8px;
+    background: var(--bg-info);
+    color: var(--text-info);
+    border-radius: var(--radius-md);
+  }
+
+  .overflow-x { overflow-x: auto; }
+
+  table.linescore {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  table.linescore th {
+    font-weight: 500;
+    font-size: 11px;
+    color: var(--text-secondary);
+    padding: 4px 6px;
+    text-align: center;
+    border-bottom: 0.5px solid var(--border-light);
+  }
+
+  table.linescore td {
+    padding: 5px 6px;
+    text-align: center;
+    color: var(--text-primary);
+  }
+
+  table.linescore td:first-child { text-align: left; }
+
+  table.linescore tr:not(:last-child) td {
+    border-bottom: 0.5px solid var(--border-light);
+  }
+
+  table.linescore .rhe {
+    font-weight: 500;
+    background: var(--bg-secondary);
+  }
+
+  table.linescore .winner-score {
+    color: var(--accent-blue);
+    font-weight: 500;
+  }
+
+  .inning-extra { background: rgba(24,95,165,0.06); }
+
+  /* ── PLAYER TABLE ── */
+  table.player-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  table.player-table th {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    padding: 5px 8px;
+    text-align: right;
+    border-bottom: 0.5px solid var(--border-light);
+  }
+
+  table.player-table th:first-child { text-align: left; }
+
+  table.player-table td {
+    padding: 5px 8px;
+    color: var(--text-primary);
+    text-align: right;
+    border-bottom: 0.5px solid var(--border-light);
+  }
+
+  table.player-table td:first-child { text-align: left; }
+  table.player-table tr:last-child td { border-bottom: none; }
+
+  .pitcher-note-w { font-size: 11px; color: var(--text-info); margin-left: 4px; }
+  .pitcher-note-l { font-size: 11px; color: #a32d2d; margin-left: 4px; }
+
+  .table-footer {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-top: 6px;
+  }
+</style>
+</head>
+<body>
+<div class="max-w">
+
+  <!-- ═══════════════════════════════════════════════
+       SECTION 1: SCORES DASHBOARD
+  ══════════════════════════════════════════════════ -->
+  <h1>MLB scores</h1>
+  <p class="page-subtitle">Saturday, May 2, 2026 · 15 games</p>
+
+  <div class="filters" id="filters">
+    <button class="filter-btn" onclick="filterGames(&#39;all&#39;)">All (15)</button>
+    <button class="filter-btn active" onclick="filterGames(&#39;blowout&#39;)">Blowouts</button>
+    <button class="filter-btn" onclick="filterGames(&#39;close&#39;)">Close games</button>
+    <button class="filter-btn" onclick="filterGames(&#39;upset&#39;)">High scoring</button>
+  </div>
+
+  <div class="games-grid" id="games-grid"><div class="game-card">
+      <div class="team-row">
+        <span class="team-name ">Baltimore Orioles</span>
+        <span class="team-score ">4</span>
+      </div>
+      <div class="card-divider"></div>
+      <div class="team-row">
+        <span class="team-name winner">New York Yankees</span>
+        <span class="team-score winner">9</span>
+      </div>
+      <div class="game-meta">1:35 PM EDT · 13 runs</div>
+    </div><div class="game-card">
+      <div class="team-row">
+        <span class="team-name winner">Toronto Blue Jays</span>
+        <span class="team-score winner">11</span>
+      </div>
+      <div class="card-divider"></div>
+      <div class="team-row">
+        <span class="team-name ">Minnesota Twins</span>
+        <span class="team-score ">4</span>
+      </div>
+      <div class="game-meta">2:10 PM EDT · 15 runs</div>
+    </div><div class="game-card">
+      <div class="team-row">
+        <span class="team-name ">Cincinnati Reds</span>
+        <span class="team-score ">7</span>
+      </div>
+      <div class="card-divider"></div>
+      <div class="team-row">
+        <span class="team-name winner">Pittsburgh Pirates<span class="badge">blowout</span></span>
+        <span class="team-score winner">17</span>
+      </div>
+      <div class="game-meta">4:05 PM EDT · 24 runs</div>
+    </div><div class="game-card">
+      <div class="team-row">
+        <span class="team-name winner">Cleveland Guardians</span>
+        <span class="team-score winner">14</span>
+      </div>
+      <div class="card-divider"></div>
+      <div class="team-row">
+        <span class="team-name ">Athletics<span class="badge">blowout</span></span>
+        <span class="team-score ">6</span>
+      </div>
+      <div class="game-meta">4:05 PM EDT · 20 runs</div>
+    </div><div class="game-card">
+      <div class="team-row">
+        <span class="team-name winner">Atlanta Braves</span>
+        <span class="team-score winner">9</span>
+      </div>
+      <div class="card-divider"></div>
+      <div class="team-row">
+        <span class="team-name ">Colorado Rockies<span class="badge">blowout</span></span>
+        <span class="team-score ">1</span>
+      </div>
+      <div class="game-meta">8:10 PM EDT · 10 runs</div>
+    </div></div>
+
+  <div class="metrics-row">
+    <div class="metric-card">
+      <div class="metric-label">Total runs scored</div>
+      <div class="metric-value" id="total-runs">135</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Avg runs/game</div>
+      <div class="metric-value" id="avg-runs">9.0</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Biggest blowout</div>
+      <div class="metric-value small">PIT 17, CIN 7</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Closest game</div>
+      <div class="metric-value small">STL 3, LAD 2</div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════
+       SECTION 2: BOX SCORE (Angels vs Mets)
+  ══════════════════════════════════════════════════ -->
+  <div class="section-sep"></div>
+  <div class="section-header">Box score — Angels vs Mets</div>
+  <p class="section-sub">Saturday, May 2, 2026 · Angel Stadium · 9:38 PM EDT</p>
+
+  <div class="boxscore-wrap">
+
+    <div class="game-header">
+      <div>
+        <span class="game-title">Angels 4, Mets 3</span>
+        <span class="game-detail">10 innings</span>
+      </div>
+      <span class="extras-badge">extras</span>
+    </div>
+
+    <!-- LINE SCORE -->
+    <div class="section-label">line score</div>
+    <div class="overflow-x">
+      <table class="linescore">
+        <thead>
+          <tr>
+            <th style="text-align:left; min-width:90px;">Team</th>
+            <th>1</th><th>2</th><th>3</th><th>4</th><th>5</th>
+            <th>6</th><th>7</th><th>8</th><th>9</th>
+            <th style="background:rgba(24,95,165,0.07)">10</th>
+            <th class="rhe">R</th><th class="rhe">H</th><th class="rhe">E</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>NYM</td>
+            <td>0</td><td>0</td><td>1</td><td>0</td><td>0</td>
+            <td>0</td><td>2</td><td>0</td><td>0</td>
+            <td class="inning-extra">0</td>
+            <td>3</td><td>9</td><td>0</td>
+          </tr>
+          <tr>
+            <td>LAA</td>
+            <td>1</td><td>0</td><td>0</td><td>2</td><td>0</td>
+            <td>0</td><td>0</td><td>0</td><td>0</td>
+            <td class="inning-extra winner-score">1</td>
+            <td class="winner-score">4</td><td>12</td><td>1</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- TAB NAVIGATION -->
+    <div class="tabs" style="margin-top:16px;">
+      <button class="tab-btn" onclick="showTab(&#39;laa&#39;)">Angels batters</button>
+      <button class="tab-btn active" onclick="showTab(&#39;nym&#39;)">Mets batters</button>
+      <button class="tab-btn" onclick="showTab(&#39;pitching&#39;)">Pitching</button>
+    </div>
+
+    <!-- ANGELS BATTERS -->
+    <div class="tab-panel" id="tab-laa">
+      <div class="section-label">Los Angeles Angels — hitting</div>
+      <div class="overflow-x">
+        <table class="player-table">
+          <thead>
+            <tr><th>Player</th><th>Pos</th><th>AB</th><th>H</th><th>2B</th><th>RBI</th><th>R</th><th>BB</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Oswald Peraza</td><td>2B</td><td>5</td><td>3</td><td>1</td><td>1</td><td>—</td><td>—</td></tr>
+            <tr><td>Jo Adell</td><td>RF</td><td>5</td><td>3</td><td>—</td><td>1</td><td>1</td><td>—</td></tr>
+            <tr><td>Mike Trout</td><td>CF</td><td>5</td><td>2</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+            <tr><td>Vaughn Grissom</td><td>2B</td><td>5</td><td>1</td><td>—</td><td>2</td><td>—</td><td>—</td></tr>
+            <tr><td>Yoán Moncada</td><td>3B</td><td>1</td><td>1</td><td>1</td><td>—</td><td>—</td><td>—</td></tr>
+            <tr><td>Jorge Soler</td><td>RF</td><td>5</td><td>1</td><td>—</td><td>—</td><td>1</td><td>2</td></tr>
+            <tr><td>Nolan Schanuel</td><td>1B</td><td>5</td><td>1</td><td>—</td><td>—</td><td>1</td><td>—</td></tr>
+            <tr><td>Josh Lowe</td><td>LF</td><td>5</td><td>0</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+            <tr><td>Zach Neto</td><td>SS</td><td>5</td><td>0</td><td>—</td><td>—</td><td>—</td><td>1</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="table-footer">Team: 12 H · 4 RBI · .300 avg · .364 OBP</p>
+    </div>
+
+    <!-- METS BATTERS -->
+    <div class="tab-panel active" id="tab-nym">
+      <div class="section-label">New York Mets — hitting</div>
+      <div class="overflow-x">
+        <table class="player-table">
+          <thead>
+            <tr><th>Player</th><th>Pos</th><th>AB</th><th>H</th><th>2B</th><th>RBI</th><th>R</th><th>BB</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Austin Slater</td><td>LF</td><td>3</td><td>2</td><td>1</td><td>—</td><td>1</td><td>—</td></tr>
+            <tr><td>Ronny Mauricio</td><td>SS</td><td>3</td><td>1</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+            <tr><td>Juan Soto</td><td>LF</td><td>5</td><td>1</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+            <tr><td>Francisco Alvarez</td><td>C</td><td>5</td><td>1</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+            <tr><td>Tyrone Taylor</td><td>RF</td><td>4</td><td>1</td><td>—</td><td>1</td><td>—</td><td>—</td></tr>
+            <tr><td>Mark Vientos</td><td>1B</td><td>4</td><td>1</td><td>1</td><td>—</td><td>1</td><td>—</td></tr>
+            <tr><td>Bo Bichette</td><td>3B</td><td>5</td><td>1</td><td>—</td><td>1</td><td>—</td><td>—</td></tr>
+            <tr><td>Marcus Semien</td><td>2B</td><td>4</td><td>1</td><td>—</td><td>—</td><td>1</td><td>—</td></tr>
+            <tr><td>Andy Ibáñez</td><td>2B</td><td>3</td><td>0</td><td>—</td><td>1</td><td>—</td><td>—</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="table-footer">Team: 9 H · 3 RBI · .250 avg · .263 OBP</p>
+    </div>
+
+    <!-- PITCHING -->
+    <div class="tab-panel" id="tab-pitching">
+      <div class="section-label">Angels pitching</div>
+      <div class="overflow-x">
+        <table class="player-table">
+          <thead>
+            <tr><th>Pitcher</th><th>Role</th><th>IP</th><th>H</th><th>R</th><th>ER</th><th>K</th><th>Pitches</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Reid Detmers</td><td>SP</td><td>6.1</td><td>9</td><td>3</td><td>3</td><td>8</td><td>95</td></tr>
+            <tr><td>Sam Bachman</td><td>RP</td><td>1.2</td><td>0</td><td>0</td><td>0</td><td>3</td><td>18</td></tr>
+            <tr><td>Ryan Zeferjahn <span class="pitcher-note-w">W</span></td><td>RP</td><td>2.0</td><td>0</td><td>0</td><td>0</td><td>1</td><td>23</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="section-label" style="margin-top:14px;">Mets pitching</div>
+      <div class="overflow-x">
+        <table class="player-table">
+          <thead>
+            <tr><th>Pitcher</th><th>Role</th><th>IP</th><th>H</th><th>R</th><th>ER</th><th>K</th><th>Pitches</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Nolan McLean</td><td>SP</td><td>4.0</td><td>6</td><td>3</td><td>3</td><td>6</td><td>78</td></tr>
+            <tr><td>Tobias Myers</td><td>RP</td><td>2.2</td><td>3</td><td>0</td><td>0</td><td>0</td><td>36</td></tr>
+            <tr><td>Huascar Brazobán</td><td>RP</td><td>1.1</td><td>0</td><td>0</td><td>0</td><td>1</td><td>18</td></tr>
+            <tr><td>Craig Kimbrel</td><td>RP</td><td>1.0</td><td>1</td><td>0</td><td>0</td><td>1</td><td>12</td></tr>
+            <tr><td>Austin Warren <span class="pitcher-note-l">L</span></td><td>RP</td><td>0.2</td><td>2</td><td>1</td><td>0</td><td>0</td><td>20</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="table-footer">Mets threw 164 pitches total vs. Angels' 136</p>
+    </div>
+
+  </div><!-- /.boxscore-wrap -->
+</div><!-- /.max-w -->
+
+<script>
+/* ── SCORES DATA ── */
+const games = [
+  { home:"New York Yankees", away:"Baltimore Orioles", homeScore:9, awayScore:4, time:"1:35 PM EDT" },
+  { home:"Minnesota Twins", away:"Toronto Blue Jays", homeScore:4, awayScore:11, time:"2:10 PM EDT" },
+  { home:"Chicago Cubs", away:"Arizona Diamondbacks", homeScore:2, awayScore:0, time:"2:20 PM EDT" },
+  { home:"Pittsburgh Pirates", away:"Cincinnati Reds", homeScore:17, awayScore:7, time:"4:05 PM EDT" },
+  { home:"Washington Nationals", away:"Milwaukee Brewers", homeScore:1, awayScore:4, time:"4:05 PM EDT" },
+  { home:"Athletics", away:"Cleveland Guardians", homeScore:6, awayScore:14, time:"4:05 PM EDT" },
+  { home:"Boston Red Sox", away:"Houston Astros", homeScore:3, awayScore:6, time:"4:10 PM EDT" },
+  { home:"Miami Marlins", away:"Philadelphia Phillies", homeScore:4, awayScore:0, time:"4:10 PM EDT" },
+  { home:"Tampa Bay Rays", away:"San Francisco Giants", homeScore:5, awayScore:1, time:"6:10 PM EDT" },
+  { home:"Detroit Tigers", away:"Texas Rangers", homeScore:5, awayScore:1, time:"7:15 PM EDT" },
+  { home:"St. Louis Cardinals", away:"Los Angeles Dodgers", homeScore:3, awayScore:2, time:"7:15 PM EDT" },
+  { home:"Colorado Rockies", away:"Atlanta Braves", homeScore:1, awayScore:9, time:"8:10 PM EDT" },
+  { home:"San Diego Padres", away:"Chicago White Sox", homeScore:0, awayScore:4, time:"8:40 PM EDT" },
+  { home:"Los Angeles Angels", away:"New York Mets", homeScore:4, awayScore:3, time:"9:38 PM EDT" },
+  { home:"Seattle Mariners", away:"Kansas City Royals", homeScore:2, awayScore:3, time:"9:40 PM EDT" },
+];
+
+function getDiff(g) { return Math.abs(g.homeScore - g.awayScore); }
+function getTotal(g) { return g.homeScore + g.awayScore; }
+
+function renderGames(filter) {
+  const grid = document.getElementById('games-grid');
+  let filtered = games;
+  if (filter === 'blowout') filtered = games.filter(g => getDiff(g) >= 5);
+  if (filter === 'close')   filtered = games.filter(g => getDiff(g) <= 2);
+  if (filter === 'upset')   filtered = games.filter(g => getTotal(g) >= 10);
+
+  document.querySelectorAll('.filter-btn').forEach((b, i) => {
+    b.classList.toggle('active', ['all','blowout','close','upset'][i] === filter);
+  });
+
+  grid.innerHTML = filtered.map(g => {
+    const homeWins = g.homeScore > g.awayScore;
+    const diff = getDiff(g);
+    const total = getTotal(g);
+    let badge = diff >= 8 ? '<span class="badge">blowout</span>'
+              : diff === 1 ? '<span class="badge">1-run game</span>' : '';
+
+    return `<div class="game-card">
+      <div class="team-row">
+        <span class="team-name ${!homeWins ? 'winner' : ''}">${g.away}</span>
+        <span class="team-score ${!homeWins ? 'winner' : ''}">${g.awayScore}</span>
+      </div>
+      <div class="card-divider"></div>
+      <div class="team-row">
+        <span class="team-name ${homeWins ? 'winner' : ''}">${g.home}${badge}</span>
+        <span class="team-score ${homeWins ? 'winner' : ''}">${g.homeScore}</span>
+      </div>
+      <div class="game-meta">${g.time} · ${total} runs</div>
+    </div>`;
+  }).join('');
+
+  // update metrics
+  const allTotal = games.reduce((s, g) => s + getTotal(g), 0);
+  document.getElementById('total-runs').textContent = allTotal;
+  document.getElementById('avg-runs').textContent = (allTotal / games.length).toFixed(1);
+}
+
+function filterGames(f) { renderGames(f); }
+renderGames('all');
+
+/* ── BOX SCORE TABS ── */
+function showTab(id) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach((b, i) => {
+    b.classList.toggle('active', ['laa','nym','pitching'][i] === id);
+  });
+  document.getElementById('tab-' + id).classList.add('active');
+}
+</script>
+
+
+</body></html>
