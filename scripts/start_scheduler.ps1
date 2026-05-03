@@ -1,17 +1,34 @@
-# MLB Pipeline Scheduler launcher — invoked by Windows Task Scheduler.
-# Starts the APScheduler daemon and tees stdout/stderr to a timestamped log file.
+# Manually trigger one or all MLB pipeline jobs.
+# Run from any PowerShell prompt — no elevated rights needed.
+#
+# Usage:
+#   .\start_scheduler.ps1                         # run all three jobs in sequence
+#   .\start_scheduler.ps1 -Job nightly_incremental
+#   .\start_scheduler.ps1 -Job nightly_incremental -Date 2026-05-02
 
-$ErrorActionPreference = "Stop"
+param(
+    [ValidateSet("nightly_incremental","roster_sync","standings_snapshot","all")]
+    [string]$Job = "all",
 
-$projectRoot = "C:\Users\metsy\dev\development\active-projects\mlb-data-db-fabric"
-$uvExe       = "C:\Users\metsy\.local\bin\uv.exe"
+    [string]$Date = ""
+)
 
-Set-Location $projectRoot
+$projectRoot  = "C:\Users\metsy\dev\development\active-projects\mlb-data-db-fabric"
+$runJobScript = Join-Path $projectRoot "scripts\run_job.ps1"
 
-$ts      = Get-Date -Format "yyyyMMdd_HHmmss"
-$logDir  = Join-Path $projectRoot "logs"
-$logFile = Join-Path $logDir "scheduler_$ts.log"
+function Invoke-Job([string]$name) {
+    $extraArgs = @()
+    if ($Date) { $extraArgs = @("-Date", $Date) }
+    & $runJobScript -Job $name @extraArgs
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "$name exited with code $LASTEXITCODE"
+    }
+}
 
-if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
-
-& $uvExe run python -m src.scheduler.jobs 2>&1 | Tee-Object -FilePath $logFile -Append
+if ($Job -eq "all") {
+    Invoke-Job "nightly_incremental"
+    Invoke-Job "standings_snapshot"
+    Invoke-Job "roster_sync"
+} else {
+    Invoke-Job $Job
+}

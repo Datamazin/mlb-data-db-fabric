@@ -7,12 +7,30 @@ through the standard logging system so everything lands in one place.
 from __future__ import annotations
 
 import logging
+import shutil
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import structlog
 
 DEFAULT_LOG_FILE = Path("data/debug/logs/pipeline.log")
+
+
+class _WindowsSafeRotatingFileHandler(RotatingFileHandler):
+    """RotatingFileHandler that copies-then-truncates instead of os.rename().
+
+    os.rename() fails on Windows (WinError 32) when another process holds the
+    log file open. Copying to the backup path and truncating the source in-place
+    keeps existing file handles valid so the scheduler daemon can keep writing
+    while short-lived CLI processes rotate without error.
+    """
+
+    def rotate(self, source: str, dest: str) -> None:
+        if Path(dest).exists():
+            Path(dest).unlink()
+        shutil.copy2(source, dest)
+        with open(source, "w", encoding="utf-8"):
+            pass  # truncate in-place
 
 
 def configure_logging(
@@ -37,11 +55,12 @@ def configure_logging(
     stream_handler = logging.StreamHandler()
     stream_handler.setFormatter(formatter)
 
-    file_handler = RotatingFileHandler(
+    file_handler = _WindowsSafeRotatingFileHandler(
         filename=log_file,
         maxBytes=5 * 1024 * 1024,
         backupCount=5,
         encoding="utf-8",
+        delay=True,
     )
     file_handler.setFormatter(formatter)
 
