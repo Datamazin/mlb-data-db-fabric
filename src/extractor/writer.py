@@ -203,6 +203,19 @@ class BronzeWriter:
         path = f"{self._root}/players/season={season_year}/players_{season_year}.parquet"
         return self._write(records, PLAYER_SCHEMA, path)
 
+    def read_player_ids(self, season_year: int) -> set[int]:
+        """Return player_ids already written to bronze for this season."""
+        path = f"{self._root}/players/season={season_year}/players_{season_year}.parquet"
+        try:
+            if not self._fs.exists(path):
+                return set()
+            with self._fs.open(path, "rb") as f:
+                table = pq.read_table(f, columns=["player_id"])
+            return set(table["player_id"].to_pylist())
+        except Exception as exc:
+            log.warning("bronze_read_player_ids_error", season_year=season_year, error=str(exc))
+            return set()
+
     def write_teams(self, records: list[dict[str, Any]], season_year: int) -> str:
         path = f"{self._root}/teams/season={season_year}/teams_{season_year}.parquet"
         return self._write(records, TEAM_SCHEMA, path)

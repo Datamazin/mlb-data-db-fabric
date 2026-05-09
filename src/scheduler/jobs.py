@@ -179,7 +179,10 @@ async def roster_sync(season_year: int = ACTIVE_SEASON) -> None:
     try:
         async with MLBClient() as client:
             team_ids = await extract_teams(client, writer, season_year)
-            player_ids = await extract_players(client, writer, season_year)
+            existing_player_ids = writer.read_player_ids(season_year)
+            player_ids = await extract_players(
+                client, writer, season_year, skip_ids=existing_player_ids
+            )
             log.info("roster_sync_extracted", teams=len(team_ids), players=len(player_ids))
 
             await extract_seasons(client, writer, list(range(2022, season_year + 1)))
@@ -199,6 +202,21 @@ async def roster_sync(season_year: int = ACTIVE_SEASON) -> None:
         )
         if not result.success:
             raise RuntimeError(f"Transform failed: {result.errors}")
+
+        aggregator = Aggregator(conn)
+        agg_result = aggregator.run(
+            scripts=[
+                "001_dim_player.sql",
+                "002_dim_team.sql",
+                "003_dim_venue.sql",
+                "010_dim_home_team.sql",
+                "011_dim_away_team.sql",
+                "012_dim_season.sql",
+            ],
+            force=True,
+        )
+        if not agg_result.success:
+            raise RuntimeError(f"Aggregate failed: {agg_result.errors}")
 
         tracker.complete_run(
             run_id,

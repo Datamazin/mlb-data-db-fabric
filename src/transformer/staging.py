@@ -337,7 +337,7 @@ def load_venues(
                 )
                 """,
                 "INSERT INTO staging.venues_teams VALUES (?,?)",
-                [(r["venue_id"], r["venue_name"]) for r in df_out2.to_dict("records")],
+                [(int(r["venue_id"]), _nullable_str(r.get("venue_name"))) for r in df_out2.to_dict("records")],
             ))
 
     # Pass 3 — venue detail from dedicated /v1/venues extraction
@@ -384,8 +384,14 @@ def load_venues(
                 "INSERT INTO staging.venues_detail VALUES (?,?,?,?,?,?,?,?)",
                 [
                     (
-                        r["venue_id"], r["venue_name"], r["city"], r["state"],
-                        r["country"], r["capacity"], r["surface"], r["roof_type"],
+                        int(r["venue_id"]),
+                        _nullable_str(r.get("venue_name")),
+                        _nullable_str(r.get("city")),
+                        _nullable_str(r.get("state")),
+                        _nullable_str(r.get("country")),
+                        _nullable_int(r.get("capacity")),
+                        _nullable_str(r.get("surface")),
+                        _nullable_str(r.get("roof_type")),
                     )
                     for r in df_out3.to_dict("records")
                 ],
