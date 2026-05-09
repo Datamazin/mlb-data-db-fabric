@@ -47,6 +47,9 @@ coverage.xml
 # Ruff
 .ruff_cache/
 
+# Logs
+logs/
+
 # IDE
 .vscode/settings.json
 .idea/
@@ -55,6 +58,17 @@ coverage.xml
 
 # Claude Code — machine-local config, not shared
 .claude/
+
+# Fabric / OneLake VFS and workspace artifacts (machine-local)
+.stubs/
+.vfscache/
+.vfsmeta/
+.work-folder-info
+notebooks/
+pipelines/
+
+# OneLake VFS GUID mount directories
+????????-????-????-????-????????????/
 
 # macOS
 .DS_Store

@@ -1,0 +1,213 @@
+{
+  "model": {
+    "workspace": "MLB",
+    "name": "MLB Model",
+    "sourceSchema": "gold",
+    "conventions": {
+      "tableNames": "Title Case, remove dim_/fact_ prefixes",
+      "dimensionColumns": "Title Case with spaces",
+      "factColumns": "Keep technical columns hidden",
+      "hideKeys": true
+    }
+  },
+  "tables": [
+    {
+      "source": "dim_player",
+      "displayName": "Player",
+      "columns": [
+        { "source": "player_id", "displayName": "Player ID", "hidden": true },
+        { "source": "full_name", "displayName": "Player" },
+        { "source": "first_name", "displayName": "First Name" },
+        { "source": "last_name", "displayName": "Last Name" },
+        { "source": "birth_date", "displayName": "Birth Date" },
+        { "source": "primary_position", "displayName": "Primary Position" },
+        { "source": "active", "displayName": "Active" }
+      ]
+    },
+    {
+      "source": "dim_team",
+      "displayName": "Team",
+      "columns": [
+        { "source": "team_id", "displayName": "Team ID", "hidden": true },
+        { "source": "season_year", "displayName": "Season Year", "hidden": true },
+        { "source": "team_name", "displayName": "Team Name" },
+        { "source": "team_abbrev", "displayName": "Team Abbreviation" },
+        { "source": "city", "displayName": "City" },
+        { "source": "league_name", "displayName": "League Name" },
+        { "source": "division_name", "displayName": "Division Name" }
+      ]
+    },
+    {
+      "source": "dim_home_team",
+      "displayName": "Home Team",
+      "columns": [
+        { "source": "team_season_key", "displayName": "Home Team Season Key", "hidden": true },
+        { "source": "team_id", "displayName": "Home Team ID", "hidden": true },
+        { "source": "team_name", "displayName": "Home Team Name" },
+        { "source": "team_abbrev", "displayName": "Home Team Abbreviation" },
+        { "source": "city", "displayName": "Home City" },
+        { "source": "division_name", "displayName": "Home Division Name" },
+        { "source": "venue_name", "displayName": "Home Venue Name" }
+      ]
+    },
+    {
+      "source": "dim_away_team",
+      "displayName": "Away Team",
+      "columns": [
+        { "source": "team_season_key", "displayName": "Away Team Season Key", "hidden": true },
+        { "source": "team_id", "displayName": "Away Team ID", "hidden": true },
+        { "source": "team_name", "displayName": "Away Team Name" },
+        { "source": "team_abbrev", "displayName": "Away Team Abbreviation" },
+        { "source": "city", "displayName": "Away City" },
+        { "source": "division_name", "displayName": "Away Division Name" },
+        { "source": "venue_name", "displayName": "Away Venue Name" }
+      ]
+    },
+    {
+      "source": "dim_season",
+      "displayName": "Season",
+      "columns": [
+        { "source": "season_year", "displayName": "Season Year", "hidden": true },
+        { "source": "sport_id", "displayName": "Sport ID", "hidden": true },
+        { "source": "regular_season_start", "displayName": "Regular Season Start" },
+        { "source": "regular_season_end", "displayName": "Regular Season End" },
+        { "source": "postseason_start", "displayName": "Postseason Start" },
+        { "source": "world_series_end", "displayName": "World Series End" },
+        { "source": "games_per_team", "displayName": "Games Per Team" }
+      ]
+    },
+    {
+      "source": "fact_game",
+      "displayName": "Game",
+      "columns": [
+        { "source": "game_pk", "displayName": "Game ID", "hidden": true },
+        { "source": "season_year", "displayName": "Season Year", "hidden": true },
+        { "source": "game_date", "displayName": "Game Date" },
+        { "source": "home_team_id", "displayName": "Home Team ID", "hidden": true },
+        { "source": "away_team_id", "displayName": "Away Team ID", "hidden": true },
+        { "source": "home_score", "displayName": "Home Score", "hidden": true },
+        { "source": "away_score", "displayName": "Away Score", "hidden": true },
+        { "source": "attendance", "displayName": "Attendance", "hidden": true }
+      ],
+      "measures": [
+        {
+          "name": "Total Games",
+          "expression": "COUNTROWS('Game')",
+          "formatString": "#,0"
+        },
+        {
+          "name": "Total Attendance",
+          "expression": "SUM('Game'[attendance])",
+          "formatString": "#,0"
+        },
+        {
+          "name": "Avg Attendance",
+          "expression": "DIVIDE([Total Attendance], [Total Games])",
+          "formatString": "#,0"
+        },
+        {
+          "name": "Home Win Rate",
+          "expression": "DIVIDE(CALCULATE(COUNTROWS('Game'), 'Game'[home_score] > 'Game'[away_score]), [Total Games])",
+          "formatString": "0.0%"
+        }
+      ]
+    },
+    {
+      "source": "leaderboards",
+      "displayName": "Leaderboards",
+      "columns": [
+        { "source": "player_id", "displayName": "Player ID", "hidden": true },
+        { "source": "team_id", "displayName": "Team ID", "hidden": true },
+        { "source": "season_year", "displayName": "Season Year", "hidden": true },
+        { "source": "hits", "displayName": "Hits", "hidden": true },
+        { "source": "home_runs", "displayName": "Home Runs", "hidden": true },
+        { "source": "rbi", "displayName": "RBI", "hidden": true },
+        { "source": "avg", "displayName": "AVG", "hidden": true },
+        { "source": "ops", "displayName": "OPS", "hidden": true }
+      ],
+      "measures": [
+        {
+          "name": "Total Hits",
+          "expression": "SUM('Leaderboards'[hits])",
+          "formatString": "#,0"
+        },
+        {
+          "name": "Total Home Runs",
+          "expression": "SUM('Leaderboards'[home_runs])",
+          "formatString": "#,0"
+        },
+        {
+          "name": "Total RBI",
+          "expression": "SUM('Leaderboards'[rbi])",
+          "formatString": "#,0"
+        },
+        {
+          "name": "Batting Avg",
+          "expression": "DIVIDE(SUM('Leaderboards'[hits]), SUM('Leaderboards'[ab]))",
+          "formatString": "0.000"
+        },
+        {
+          "name": "OPS",
+          "expression": "AVERAGE('Leaderboards'[ops])",
+          "formatString": "0.000"
+        }
+      ]
+    },
+    {
+      "source": "standings_snap",
+      "displayName": "Standings Snapshot",
+      "columns": [
+        { "source": "snap_date", "displayName": "Snapshot Date", "hidden": true },
+        { "source": "season_year", "displayName": "Season Year", "hidden": true },
+        { "source": "team_id", "displayName": "Team ID", "hidden": true },
+        { "source": "wins", "displayName": "Wins", "hidden": true },
+        { "source": "losses", "displayName": "Losses", "hidden": true },
+        { "source": "win_pct", "displayName": "Win %", "hidden": true },
+        { "source": "games_back", "displayName": "Games Back", "hidden": true }
+      ],
+      "measures": [
+        {
+          "name": "Wins",
+          "expression": "SUM('Standings Snapshot'[wins])",
+          "formatString": "#,0"
+        },
+        {
+          "name": "Losses",
+          "expression": "SUM('Standings Snapshot'[losses])",
+          "formatString": "#,0"
+        },
+        {
+          "name": "Win Percentage",
+          "expression": "DIVIDE([Wins], [Wins] + [Losses])",
+          "formatString": "0.0%"
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "fromTable": "Game",
+      "fromColumn": "season_year",
+      "toTable": "Season",
+      "toColumn": "season_year",
+      "cardinality": "ManyToOne",
+      "crossFilterDirection": "Single"
+    },
+    {
+      "fromTable": "Game",
+      "fromColumn": "home_team_id",
+      "toTable": "Home Team",
+      "toColumn": "team_id",
+      "cardinality": "ManyToOne",
+      "crossFilterDirection": "Single"
+    },
+    {
+      "fromTable": "Game",
+      "fromColumn": "away_team_id",
+      "toTable": "Away Team",
+      "toColumn": "team_id",
+      "cardinality": "ManyToOne",
+      "crossFilterDirection": "Single"
+    }
+  ]
+}
