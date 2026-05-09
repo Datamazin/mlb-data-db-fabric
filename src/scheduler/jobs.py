@@ -44,7 +44,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from connections import get_warehouse_conn, get_onelake_fs, get_bronze_root
 from extractor.client import MLBClient
-from extractor.extract import extract_game_feeds, extract_players, extract_schedule, extract_teams
+from extractor.extract import extract_game_feeds, extract_players, extract_schedule, extract_seasons, extract_teams, extract_venues
 from extractor.writer import BronzeWriter
 from run_tracker.tracker import RunTracker
 from transformer.game_batting import populate_from_files as populate_batting
@@ -182,8 +182,21 @@ async def roster_sync(season_year: int = ACTIVE_SEASON) -> None:
             player_ids = await extract_players(client, writer, season_year)
             log.info("roster_sync_extracted", teams=len(team_ids), players=len(player_ids))
 
+            await extract_seasons(client, writer, list(range(2022, season_year + 1)))
+            log.info("roster_sync_seasons_extracted")
+
+            # Enrich venue location data — query known venue IDs from silver
+            cursor = conn.cursor()
+            cursor.execute("SELECT venue_id FROM silver.venues WHERE venue_id IS NOT NULL")
+            venue_ids = [row[0] for row in cursor.fetchall()]
+            if venue_ids:
+                await extract_venues(client, writer, venue_ids)
+                log.info("roster_sync_venues_extracted", venues=len(venue_ids))
+
         transformer = Transformer(conn=conn, fs=fs, bronze_root=bronze_root)
-        result = transformer.run(scripts=["005_teams.sql", "006_players.sql"], force=True)
+        result = transformer.run(
+            scripts=["004_venues.sql", "005_teams.sql", "006_players.sql", "012_seasons.sql"], force=True
+        )
         if not result.success:
             raise RuntimeError(f"Transform failed: {result.errors}")
 

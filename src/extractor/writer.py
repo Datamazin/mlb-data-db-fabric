@@ -111,6 +111,33 @@ TEAM_SCHEMA = pa.schema([
     pa.field("source_url",   pa.string()),
 ])
 
+SEASON_SCHEMA = pa.schema([
+    pa.field("season_year",           pa.int32()),
+    pa.field("sport_id",              pa.int32()),
+    pa.field("regular_season_start",  pa.string()),
+    pa.field("regular_season_end",    pa.string()),
+    pa.field("postseason_start",      pa.string()),
+    pa.field("world_series_end",      pa.string()),
+    pa.field("games_per_team",        pa.int32()),
+    pa.field("raw_json",              pa.string()),
+    pa.field("extracted_at",          pa.string()),
+    pa.field("source_url",            pa.string()),
+])
+
+VENUE_SCHEMA = pa.schema([
+    pa.field("venue_id",     pa.int32()),
+    pa.field("venue_name",   pa.string()),
+    pa.field("city",         pa.string()),
+    pa.field("state",        pa.string()),
+    pa.field("country",      pa.string()),
+    pa.field("capacity",     pa.int32()),
+    pa.field("surface",      pa.string()),
+    pa.field("roof_type",    pa.string()),
+    pa.field("raw_json",     pa.string()),
+    pa.field("extracted_at", pa.string()),
+    pa.field("source_url",   pa.string()),
+])
+
 
 # ── Writer ─────────────────────────────────────────────────────────────────────
 
@@ -179,6 +206,14 @@ class BronzeWriter:
     def write_teams(self, records: list[dict[str, Any]], season_year: int) -> str:
         path = f"{self._root}/teams/season={season_year}/teams_{season_year}.parquet"
         return self._write(records, TEAM_SCHEMA, path)
+
+    def write_seasons(self, records: list[dict[str, Any]]) -> str:
+        path = f"{self._root}/seasons/seasons.parquet"
+        return self._write(records, SEASON_SCHEMA, path)
+
+    def write_venues(self, records: list[dict[str, Any]]) -> str:
+        path = f"{self._root}/venues/venues.parquet"
+        return self._write(records, VENUE_SCHEMA, path)
 
 
 # ── Record builders (unchanged logic) ────────────────────────────────────────
@@ -266,6 +301,39 @@ def team_to_record(
         "city":         team_model.location_name,
         "first_year":   _int_or_none(team_model.first_year_of_play),
         "active":       team_model.active,
+        "raw_json":     json.dumps(raw),
+        "extracted_at": _now_utc(),
+        "source_url":   source_url,
+    }
+
+
+def season_to_record(raw: dict[str, Any], source_url: str) -> dict[str, Any]:
+    return {
+        "season_year":          int(raw.get("seasonId", 0)),
+        "sport_id":             int(raw.get("sport", {}).get("id", 1)),
+        "regular_season_start": raw.get("regularSeasonStartDate"),
+        "regular_season_end":   raw.get("regularSeasonEndDate"),
+        "postseason_start":     raw.get("postSeasonStartDate"),
+        "world_series_end":     raw.get("worldSeriesEndDate"),
+        "games_per_team":       raw.get("numGames"),
+        "raw_json":             json.dumps(raw),
+        "extracted_at":         _now_utc(),
+        "source_url":           source_url,
+    }
+
+
+def venue_to_record(venue_model: Any, raw: dict[str, Any], source_url: str) -> dict[str, Any]:
+    loc = venue_model.location
+    fi = venue_model.field_info
+    return {
+        "venue_id":     venue_model.id,
+        "venue_name":   venue_model.name,
+        "city":         loc.city if loc else None,
+        "state":        loc.state_abbrev if loc else None,
+        "country":      loc.country if loc else None,
+        "capacity":     fi.capacity if fi else None,
+        "surface":      fi.turf_type if fi else None,
+        "roof_type":    fi.roof_type if fi else None,
         "raw_json":     json.dumps(raw),
         "extracted_at": _now_utc(),
         "source_url":   source_url,

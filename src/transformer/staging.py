@@ -107,6 +107,52 @@ def _nullable_int(val: Any) -> int | None:
         return None
 
 
+# ── 012_seasons ───────────────────────────────────────────────────────────────
+
+def load_seasons(
+    cursor: pyodbc.Cursor,
+    fs: adlfs.AzureBlobFileSystem,
+    bronze_root: str,
+    **_: Any,
+) -> list[str]:
+    df = _read_bronze(fs, f"{bronze_root}/seasons/seasons.parquet")
+    if df.empty:
+        return []
+
+    df = (
+        df.sort_values("extracted_at", ascending=False)
+        .drop_duplicates(subset=["season_year"])
+    )
+
+    return [_create_and_load(
+        cursor,
+        "staging.seasons",
+        """
+        CREATE TABLE staging.seasons (
+            season_year           INT           NOT NULL,
+            sport_id              INT           NOT NULL,
+            regular_season_start  NVARCHAR(20),
+            regular_season_end    NVARCHAR(20),
+            postseason_start      NVARCHAR(20),
+            world_series_end      NVARCHAR(20),
+            games_per_team        INT
+        )
+        """,
+        "INSERT INTO staging.seasons VALUES (?,?,?,?,?,?,?)",
+        [
+            (
+                int(r["season_year"]), int(r["sport_id"]),
+                _nullable_str(r.get("regular_season_start")),
+                _nullable_str(r.get("regular_season_end")),
+                _nullable_str(r.get("postseason_start")),
+                _nullable_str(r.get("world_series_end")),
+                _nullable_int(r.get("games_per_team")),
+            )
+            for r in df.to_dict("records")
+        ],
+    )]
+
+
 # ── 002_leagues ───────────────────────────────────────────────────────────────
 
 def load_leagues(
@@ -292,6 +338,57 @@ def load_venues(
                 """,
                 "INSERT INTO staging.venues_teams VALUES (?,?)",
                 [(r["venue_id"], r["venue_name"]) for r in df_out2.to_dict("records")],
+            ))
+
+    # Pass 3 — venue detail from dedicated /v1/venues extraction
+    df_detail = _read_bronze(fs, f"{bronze_root}/venues/venues.parquet")
+    if not df_detail.empty:
+        records3: list[dict[str, Any]] = []
+        for _, row in df_detail.iterrows():
+            vid = _nullable_int(row.get("venue_id"))
+            if vid is None:
+                continue
+            records3.append({
+                "venue_id":   vid,
+                "venue_name": _nullable_str(row.get("venue_name")),
+                "city":       _nullable_str(row.get("city")),
+                "state":      _nullable_str(row.get("state")),
+                "country":    _nullable_str(row.get("country")),
+                "capacity":   _nullable_int(row.get("capacity")),
+                "surface":    _nullable_str(row.get("surface")),
+                "roof_type":  _nullable_str(row.get("roof_type")),
+                "extracted_at": row.get("extracted_at", ""),
+            })
+
+        if records3:
+            df_out3 = (
+                pd.DataFrame(records3)
+                .sort_values("extracted_at", ascending=False)
+                .drop_duplicates(subset=["venue_id"])
+            )
+            created.append(_create_and_load(
+                cursor,
+                "staging.venues_detail",
+                """
+                CREATE TABLE staging.venues_detail (
+                    venue_id   INT           NOT NULL,
+                    venue_name NVARCHAR(200),
+                    city       NVARCHAR(100),
+                    state      NVARCHAR(10),
+                    country    NVARCHAR(100),
+                    capacity   INT,
+                    surface    NVARCHAR(100),
+                    roof_type  NVARCHAR(50)
+                )
+                """,
+                "INSERT INTO staging.venues_detail VALUES (?,?,?,?,?,?,?,?)",
+                [
+                    (
+                        r["venue_id"], r["venue_name"], r["city"], r["state"],
+                        r["country"], r["capacity"], r["surface"], r["roof_type"],
+                    )
+                    for r in df_out3.to_dict("records")
+                ],
             ))
 
     return created
@@ -664,4 +761,5 @@ STAGING_REGISTRY: dict[str, Any] = {
     "008_game_linescore.sql": load_game_linescore,
     "009_game_boxscore.sql":  load_game_boxscore,
     "011_fact_batting.sql":   load_game_batting,
+    "012_seasons.sql":        load_seasons,
 }

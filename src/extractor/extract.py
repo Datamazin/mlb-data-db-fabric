@@ -26,12 +26,14 @@ from typing import Any
 import structlog
 
 from .client import MLBClient
-from .models import GameFeedResponse, PersonResponse, ScheduleResponse, TeamsResponse
+from .models import GameFeedResponse, PersonResponse, ScheduleResponse, SeasonsResponse, TeamsResponse, VenuesResponse
 from .writer import (
     BronzeWriter,
     game_feed_to_record,
     player_to_record,
+    season_to_record,
     team_to_record,
+    venue_to_record,
 )
 
 log = structlog.get_logger(__name__)
@@ -233,6 +235,74 @@ async def extract_players(
     writer.write_players(records, season_year=season_year)
     log.info("extract_players_done", season_year=season_year, written=len(records))
     return [r["player_id"] for r in records]
+
+
+# ── Seasons ───────────────────────────────────────────────────────────────────
+
+async def extract_seasons(
+    client: MLBClient,
+    writer: BronzeWriter,
+    season_years: list[int],
+) -> int:
+    """
+    Fetch metadata for each season year via /v1/seasons and write to
+    bronze/seasons/seasons.parquet.
+
+    Returns the number of season records written.
+    """
+    records: list[dict[str, Any]] = []
+    for year in season_years:
+        params: dict[str, Any] = {"season": year, "sportId": 1}
+        source_url = f"/v1/seasons?season={year}&sportId=1"
+        raw = await client.get("/v1/seasons", params=params)
+        for raw_season in raw.get("seasons", []):
+            records.append(season_to_record(raw_season, source_url))
+
+    writer.write_seasons(records)
+    log.info("extract_seasons_done", count=len(records))
+    return len(records)
+
+
+# ── Venues ────────────────────────────────────────────────────────────────────
+
+_VENUE_BATCH = 50  # max venueIds per request
+
+
+async def extract_venues(
+    client: MLBClient,
+    writer: BronzeWriter,
+    venue_ids: list[int],
+) -> int:
+    """
+    Fetch location and field info for all given venue IDs via /v1/venues and
+    write to bronze/venues/venues.parquet.
+
+    Returns the number of venue records written.
+    """
+    if not venue_ids:
+        log.info("extract_venues_skip_empty")
+        return 0
+
+    records: list[dict[str, Any]] = []
+
+    for batch_start in range(0, len(venue_ids), _VENUE_BATCH):
+        batch = venue_ids[batch_start: batch_start + _VENUE_BATCH]
+        ids_str = ",".join(str(v) for v in batch)
+        params: dict[str, Any] = {
+            "venueIds": ids_str,
+            "hydrate": "location,fieldInfo",
+        }
+        source_url = f"/v1/venues?venueIds={ids_str}&hydrate=location,fieldInfo"
+        raw = await client.get("/v1/venues", params=params)
+        resp = VenuesResponse.model_validate(raw)
+        raw_venues: list[dict[str, Any]] = raw.get("venues", [])
+        for i, venue in enumerate(resp.venues):
+            raw_v = raw_venues[i] if i < len(raw_venues) else {}
+            records.append(venue_to_record(venue, raw_v, source_url))
+
+    writer.write_venues(records)
+    log.info("extract_venues_done", count=len(records))
+    return len(records)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
