@@ -195,42 +195,61 @@ async def extract_teams(
 
 # ── Players ───────────────────────────────────────────────────────────────────
 
+_PLAYER_BATCH = 50  # max personIds per /v1/people batch request
+
+
 async def extract_players(
     client: MLBClient,
     writer: BronzeWriter,
     season_year: int,
+    skip_ids: set[int] | None = None,
     concurrency: int = _DEFAULT_CONCURRENCY,
 ) -> list[int]:
     """
     Fetch full player universe for a season via /v1/sports/1/players,
-    then hydrate each player with biographical detail.
+    then batch-hydrate biographical detail via /v1/people?personIds=...
 
-    Returns player IDs extracted.
+    skip_ids: player_ids already in bronze — skipped to avoid redundant calls.
+    Returns player IDs extracted (new players only when skip_ids is provided).
     """
     # Step 1 — get the full player ID list for the season
     params: dict[str, Any] = {"season": season_year}
     raw_roster = await client.get("/v1/sports/1/players", params=params)
-    player_ids = [p["id"] for p in raw_roster.get("people", [])]
-    log.info("extract_players_universe", season_year=season_year, count=len(player_ids))
+    all_player_ids = [p["id"] for p in raw_roster.get("people", [])]
+    log.info("extract_players_universe", season_year=season_year, count=len(all_player_ids))
 
-    # Step 2 — hydrate each player individually
+    # Step 2 — filter out players already extracted this season
+    player_ids = [pid for pid in all_player_ids if pid not in (skip_ids or set())]
+    log.info(
+        "extract_players_to_fetch",
+        to_fetch=len(player_ids),
+        skipped=len(all_player_ids) - len(player_ids),
+    )
+
+    if not player_ids:
+        writer.write_players([], season_year=season_year)
+        return []
+
+    # Step 3 — batch fetch biographical data (~50 players per request)
     sem = asyncio.Semaphore(concurrency)
     records: list[dict[str, Any]] = []
 
-    async def _fetch_player(pid: int) -> None:
-        path = f"/v1/people/{pid}"
+    async def _fetch_batch(batch: list[int]) -> None:
+        ids_str = ",".join(str(p) for p in batch)
+        source_url = f"/v1/people?personIds={ids_str}"
         async with sem:
             try:
-                raw = await client.get(path)
+                raw = await client.get("/v1/people", params={"personIds": ids_str})
                 resp = PersonResponse.model_validate(raw)
-                person = resp.person
-                if person:
-                    raw_person = raw.get("people", [{}])[0]
-                    records.append(player_to_record(person, raw_person, path))
+                raw_people: list[dict[str, Any]] = raw.get("people", [])
+                for i, person in enumerate(resp.people):
+                    raw_person = raw_people[i] if i < len(raw_people) else {}
+                    records.append(player_to_record(person, raw_person, source_url))
             except Exception as exc:
-                log.warning("extract_player_error", player_id=pid, error=str(exc))
+                log.warning("extract_players_batch_error", ids=ids_str, error=str(exc))
 
-    await asyncio.gather(*[asyncio.create_task(_fetch_player(pid)) for pid in player_ids])
+    batches = [player_ids[i:i + _PLAYER_BATCH] for i in range(0, len(player_ids), _PLAYER_BATCH)]
+    await asyncio.gather(*[asyncio.create_task(_fetch_batch(b)) for b in batches])
 
     writer.write_players(records, season_year=season_year)
     log.info("extract_players_done", season_year=season_year, written=len(records))
