@@ -30,6 +30,51 @@ div[data-baseweb="tab-list"] button[aria-selected="false"]:hover {
 div[data-baseweb="tab-list"] button[aria-selected="false"]:hover p {
     color: #1565C0 !important;
 }
+/* Hero section styling */
+.hero-container {
+    background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+    padding: 2rem;
+    border-radius: 10px;
+    margin-bottom: 2rem;
+    color: white;
+}
+.hero-name {
+    font-size: 2.5rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+}
+.hero-meta {
+    font-size: 1.1rem;
+    opacity: 0.9;
+    margin-bottom: 0.5rem;
+}
+.bio-section {
+    background-color: #f8f9fa;
+    padding: 1.5rem;
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+}
+.bio-row {
+    display: flex;
+    margin-bottom: 0.5rem;
+}
+.bio-label {
+    font-weight: 600;
+    min-width: 120px;
+    color: #495057;
+}
+.bio-value {
+    color: #212529;
+}
+.status-badge {
+    background-color: #28a745;
+    color: white;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    display: inline-block;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -217,20 +262,60 @@ try:
     saved_season = st.session_state.get("profile_season", "Career")
     season_index = season_options.index(saved_season) if saved_season in season_options else 0
 
-    st.title(full_name)
-
+    # Hero Section
     birth_location = ", ".join(part for part in [birth_city, birth_country] if part)
-    bio_cols = st.columns(6)
-    bio_fields = [
-        ("Position", primary_pos or "-"),
-        ("Bats / Throws", f"{bats or '-'} / {throws_hand or '-'}"),
-        ("Born Date", str(birth_date) if birth_date else "-"),
-        ("Born Location", birth_location or "-"),
-        ("Height / Weight", f"{height or '-'}  {weight or '-'} lb"),
-        ("MLB Debut", str(debut_date) if debut_date else "-"),
-    ]
-    for col, (label, value) in zip(bio_cols, bio_fields):
-        col.metric(label, value)
+    position_display = f"{primary_pos or 'P'}"
+    bats_throws = f"B/T: {bats or '-'}/{throws_hand or '-'}"
+    height_weight = f"{height or '-'} / {weight or '-'} lb"
+    
+    # Calculate age if birth_date available
+    age_display = ""
+    if birth_date:
+        from datetime import date
+        today = date.today()
+        age = today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
+        age_display = f"| Age: {age}"
+    
+    st.markdown(f"""
+    <div class="hero-container">
+        <div class="hero-name">{full_name}</div>
+        <div class="hero-meta">{position_display} | {bats_throws} | {height_weight} {age_display}</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Biographical Summary Section
+    st.markdown('<div class="bio-section">', unsafe_allow_html=True)
+    st.markdown("### Summary")
+    
+    bio_col1, bio_col2 = st.columns(2)
+    with bio_col1:
+        st.markdown(f'<div class="bio-row"><span class="bio-label">Born:</span><span class="bio-value">{birth_date or "-"} in {birth_location or "-"}</span></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="bio-row"><span class="bio-label">Debut:</span><span class="bio-value">{debut_date or "-"}</span></div>', unsafe_allow_html=True)
+    with bio_col2:
+        # Get next game info
+        next_game = conn.execute("""
+            SELECT TOP 1 
+                sg.game_date,
+                CASE WHEN gb.is_home = 1 THEN 'vs' ELSE '@' END AS vs_at,
+                CASE WHEN gb.is_home = 1 THEN away_team.team_abbrev ELSE home_team.team_abbrev END AS opponent
+            FROM silver.games sg
+            LEFT JOIN silver.game_batting gb ON sg.game_pk = gb.game_pk AND gb.player_id = ?
+            LEFT JOIN gold.dim_team home_team ON sg.home_team_id = home_team.team_id AND sg.season_year = home_team.season_year
+            LEFT JOIN gold.dim_team away_team ON sg.away_team_id = away_team.team_id AND sg.season_year = away_team.season_year
+            WHERE sg.game_date > CAST(GETUTCDATE() AS DATE)
+              AND sg.season_year = (SELECT MAX(season_year) FROM silver.games)
+              AND (gb.player_id = ? OR EXISTS (SELECT 1 FROM silver.game_pitching gp WHERE gp.game_pk = sg.game_pk AND gp.player_id = ?))
+            ORDER BY sg.game_date
+        """, [player_id, player_id, player_id]).fetchone()
+        
+        if next_game:
+            next_game_date, vs_at, opponent = next_game
+            st.markdown(f'<div class="bio-row"><span class="bio-label">Status:</span><span class="bio-value"><span class="status-badge">Active</span></span></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="bio-row"><span class="bio-label">Next Game:</span><span class="bio-value">{next_game_date} {vs_at} {opponent}</span></div>', unsafe_allow_html=True)
+        else:
+            st.markdown(f'<div class="bio-row"><span class="bio-label">Status:</span><span class="bio-value">Active</span></div>', unsafe_allow_html=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 
     if not seasons:
         conn.close()
@@ -557,6 +642,75 @@ try:
         """,
         [player_id, *season_params],
     )
+
+    # Year-by-year stats (for Stats tab - MLB.com style)
+    batting_by_year = query_df(
+        conn,
+        f"""
+        SELECT
+            CAST(sg.season_year AS VARCHAR) + ' Regular Season' AS year,
+            COUNT(DISTINCT gb.game_pk) AS g,
+            SUM(gb.at_bats) AS ab,
+            SUM(gb.runs) AS r,
+            SUM(gb.hits) AS h,
+            SUM(gb.doubles) AS doubles,
+            SUM(gb.triples) AS triples,
+            SUM(gb.home_runs) AS hr,
+            SUM(gb.rbi) AS rbi,
+            SUM(gb.walks) AS bb,
+            SUM(gb.strikeouts) AS so,
+            ROUND(SUM(gb.hits) * 1.0 / NULLIF(SUM(gb.at_bats), 0), 3) AS avg,
+            ROUND((SUM(gb.hits) + SUM(gb.walks)) * 1.0 / NULLIF(SUM(gb.at_bats) + SUM(gb.walks), 0), 3) AS obp,
+            ROUND((SUM(gb.hits) + SUM(gb.doubles) + 2 * SUM(gb.triples) + 3 * SUM(gb.home_runs)) * 1.0 / NULLIF(SUM(gb.at_bats), 0), 3) AS slg,
+            ROUND(
+                (SUM(gb.hits) + SUM(gb.walks)) * 1.0 / NULLIF(SUM(gb.at_bats) + SUM(gb.walks), 0)
+                + (SUM(gb.hits) + SUM(gb.doubles) + 2 * SUM(gb.triples) + 3 * SUM(gb.home_runs)) * 1.0 / NULLIF(SUM(gb.at_bats), 0),
+                3
+            ) AS ops
+        FROM silver.game_batting gb
+        JOIN silver.games sg ON gb.game_pk = sg.game_pk
+        WHERE gb.player_id = ?
+          AND sg.status = 'Final'
+          AND sg.game_type IN {game_type_sql}
+        GROUP BY sg.season_year
+        ORDER BY sg.season_year DESC
+        """,
+        [player_id],
+    )
+
+    pitching_by_year = query_df(
+        conn,
+        f"""
+        SELECT
+            CAST(sg.season_year AS VARCHAR) + ' Regular Season' AS year,
+            COUNT(DISTINCT gp.game_pk) AS g,
+            SUM(gp.games_started) AS gs,
+            SUM(gp.wins) AS w,
+            SUM(gp.losses) AS l,
+            SUM(gp.saves) AS sv,
+            SUM(gp.holds) AS hld,
+            SUM(gp.blown_saves) AS bs,
+            SUM(gp.outs) AS outs,
+            SUM(gp.hits_allowed) AS h,
+            SUM(gp.runs_allowed) AS r,
+            SUM(gp.earned_runs) AS er,
+            SUM(gp.home_runs_allowed) AS hr,
+            SUM(gp.walks) AS bb,
+            SUM(gp.strikeouts) AS so,
+            ROUND(SUM(gp.earned_runs) * 27.0 / NULLIF(SUM(gp.outs), 0), 2) AS era,
+            ROUND((SUM(gp.walks) + SUM(gp.hits_allowed)) * 3.0 / NULLIF(SUM(gp.outs), 0), 3) AS whip,
+            ROUND(SUM(gp.strikeouts) * 27.0 / NULLIF(SUM(gp.outs), 0), 1) AS k9,
+            ROUND(SUM(gp.walks) * 27.0 / NULLIF(SUM(gp.outs), 0), 1) AS bb9
+        FROM silver.game_pitching gp
+        JOIN silver.games sg ON gp.game_pk = sg.game_pk
+        WHERE gp.player_id = ?
+          AND sg.status = 'Final'
+          AND sg.game_type IN {game_type_sql}
+        GROUP BY sg.season_year
+        ORDER BY sg.season_year DESC
+        """,
+        [player_id],
+    )
 finally:
     conn.close()
 
@@ -567,6 +721,8 @@ pitching_home_away = _display_pitching(pitching_home_away)
 batting_vs_hand = _display_batting(batting_vs_hand)
 batting_monthly = _display_batting(batting_monthly)
 pitching_monthly = _display_pitching(pitching_monthly)
+batting_by_year = _display_batting(batting_by_year)
+pitching_by_year = _display_pitching(pitching_by_year)
 
 has_batting = not batting_summary.empty and int(batting_summary.iloc[0]["g"] or 0) > 0
 has_pitching = not pitching_summary.empty and int(pitching_summary.iloc[0]["g"] or 0) > 0
@@ -576,20 +732,22 @@ role = "Two-way" if has_batting and has_pitching else "Batter" if has_batting el
 
 st.caption(f"{scope_label} | {game_type_label} | {teams_text} | {role}")
 
-overview_tab, batting_tab, pitching_tab = st.tabs(["Overview", "Batting", "Pitching"])
+summary_tab, stats_tab, splits_tab = st.tabs(["Summary", "Stats", "Splits"])
 
-with overview_tab:
+with summary_tab:
+    st.subheader("Career Overview")
     metric_cols = st.columns(4)
     metric_cols[0].metric("Teams", teams_text)
     metric_cols[1].metric("Role", role)
     metric_cols[2].metric("Batting G", int(batting_summary.iloc[0]["g"]) if has_batting else 0)
     metric_cols[3].metric("Pitching G", int(pitching_summary.iloc[0]["g"]) if has_pitching else 0)
+    
     st.subheader("Batting Summary")
     if has_batting:
         st.dataframe(
             batting_summary[["g", "ab", "r", "h", "doubles", "triples", "hr", "rbi", "bb", "so", "avg", "obp", "slg", "ops"]],
             hide_index=True,
-            width="stretch",
+            use_container_width=True,
             column_config={
                 "g": st.column_config.NumberColumn("G", width="small"),
                 "ab": st.column_config.NumberColumn("AB", width="small"),
@@ -615,7 +773,7 @@ with overview_tab:
         st.dataframe(
             pitching_summary[["g", "gs", "w", "l", "sv", "hld", "bs", "ip", "h", "r", "er", "hr", "bb", "so", "era", "whip", "k9", "bb9"]],
             hide_index=True,
-            width="stretch",
+            use_container_width=True,
             column_config={
                 "g": st.column_config.NumberColumn("G", width="small"),
                 "gs": st.column_config.NumberColumn("GS", width="small"),
@@ -640,9 +798,81 @@ with overview_tab:
     else:
         st.info("No pitching stats for this filter.")
 
-with batting_tab:
-    st.subheader("Batting")
+with stats_tab:
+    st.subheader("Year-by-Year Stats")
+    
+    # Batting year-by-year
+    if has_batting and not batting_by_year.empty:
+        st.markdown("### Batting")
+        # Add "Career Regular Season" row
+        career_batting = batting_summary.copy()
+        career_batting.insert(0, 'year', 'Career Regular Season')
+        
+        # Combine year-by-year with career total
+        display_batting = pd.concat([batting_by_year[["year", "g", "ab", "r", "h", "hr", "rbi", "bb", "so", "avg", "obp", "slg", "ops"]], 
+                                     career_batting[["year", "g", "ab", "r", "h", "hr", "rbi", "bb", "so", "avg", "obp", "slg", "ops"]]], 
+                                     ignore_index=True)
+        
+        st.dataframe(
+            display_batting,
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "year": st.column_config.TextColumn("Year", width="medium"),
+                "g": st.column_config.NumberColumn("G"),
+                "ab": st.column_config.NumberColumn("AB"),
+                "r": st.column_config.NumberColumn("R"),
+                "h": st.column_config.NumberColumn("H"),
+                "hr": st.column_config.NumberColumn("HR"),
+                "rbi": st.column_config.NumberColumn("RBI"),
+                "bb": st.column_config.NumberColumn("BB"),
+                "so": st.column_config.NumberColumn("SO"),
+                "avg": st.column_config.TextColumn("AVG"),
+                "obp": st.column_config.TextColumn("OBP"),
+                "slg": st.column_config.TextColumn("SLG"),
+                "ops": st.column_config.TextColumn("OPS"),
+            },
+        )
+    
+    # Pitching year-by-year
+    if has_pitching and not pitching_by_year.empty:
+        st.markdown("### Pitching")
+        # Add "Career Regular Season" row
+        career_pitching = pitching_summary.copy()
+        career_pitching.insert(0, 'year', 'Career Regular Season')
+        
+        # Combine year-by-year with career total
+        display_pitching = pd.concat([pitching_by_year[["year", "w", "l", "era", "g", "gs", "sv", "ip", "so", "whip"]], 
+                                      career_pitching[["year", "w", "l", "era", "g", "gs", "sv", "ip", "so", "whip"]]], 
+                                      ignore_index=True)
+        
+        st.dataframe(
+            display_pitching,
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "year": st.column_config.TextColumn("Year", width="medium"),
+                "w": st.column_config.NumberColumn("W"),
+                "l": st.column_config.NumberColumn("L"),
+                "era": st.column_config.NumberColumn("ERA", format="%.2f"),
+                "g": st.column_config.NumberColumn("G"),
+                "gs": st.column_config.NumberColumn("GS"),
+                "sv": st.column_config.NumberColumn("SV"),
+                "ip": st.column_config.TextColumn("IP"),
+                "so": st.column_config.NumberColumn("SO"),
+                "whip": st.column_config.NumberColumn("WHIP", format="%.3f"),
+            },
+        )
+    
+    if not has_batting and not has_pitching:
+        st.info("No stats available for this player.")
+
+with splits_tab:
+    st.subheader("Advanced Splits")
+    
+    # Batting Splits
     if has_batting:
+        st.markdown("### Batting Splits")
         row = batting_summary.iloc[0]
         batting_metrics = st.columns(4)
         batting_metrics[0].metric("AVG", row["avg"])
@@ -685,12 +915,10 @@ with batting_tab:
                 "bb": "BB", "so": "SO", "avg": "AVG", "obp": "OBP", "slg": "SLG", "ops": "OPS",
             },
         )
-    else:
-        st.info("No batting stats for this filter.")
-
-with pitching_tab:
-    st.subheader("Pitching")
+    
+    # Pitching Splits
     if has_pitching:
+        st.markdown("### Pitching Splits")
         row = pitching_summary.iloc[0]
         pitching_metrics = st.columns(4)
         pitching_metrics[0].metric("ERA", f"{float(row['era']):.2f}" if not pd.isna(row["era"]) else "-")
@@ -729,5 +957,6 @@ with pitching_tab:
                 "bb9": st.column_config.NumberColumn("BB/9", format="%.1f"),
             },
         )
-    else:
-        st.info("No pitching stats for this filter.")
+    
+    if not has_batting and not has_pitching:
+        st.info("No batting or pitching stats for this filter.")

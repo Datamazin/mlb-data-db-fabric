@@ -142,7 +142,7 @@ hit_tab, pitch_tab = st.tabs(["Hitting", "Pitching"])
 # ═══════════════════════════════════════════════════════════════════════════════
 
 with hit_tab:
-    hc1, hc2, hc3 = st.columns([1.5, 1.5, 1])
+    hc1, hc2, hc3, hc4 = st.columns([1.2, 1, 0.8, 1.2])
     with hc1:
         position = st.selectbox("Position", BAT_POSITIONS)
     with hc2:
@@ -156,8 +156,37 @@ with hit_tab:
         st.session_state["leaders_bat_sort"] = bat_sort_label
     with hc3:
         bat_min_ab = st.number_input("Min AB", min_value=0, value=0, step=5, key="bat_min_ab")
+    with hc4:
+        bat_game_split = st.selectbox("Game Split", [
+            "All Games",
+            "Home Games",
+            "Away Games",
+            "Day Games",
+            "Night Games",
+            "On Grass",
+            "On Turf"
+        ], key="bat_game_split")
 
     bat_col, bat_desc = BAT_SORT[bat_sort_label]
+
+    # Build game split filter for batting
+    bat_split_filter = ""
+    bat_split_join = ""
+    
+    if bat_game_split == "Home Games":
+        bat_split_filter = "AND gb.is_home = 1"
+    elif bat_game_split == "Away Games":
+        bat_split_filter = "AND gb.is_home = 0"
+    elif bat_game_split == "Day Games":
+        bat_split_filter = "AND DATEPART(HOUR, sg.game_datetime) < 17"
+    elif bat_game_split == "Night Games":
+        bat_split_filter = "AND DATEPART(HOUR, sg.game_datetime) >= 17"
+    elif bat_game_split == "On Grass":
+        bat_split_join = "LEFT JOIN silver.venues v ON sg.venue_id = v.venue_id"
+        bat_split_filter = "AND v.surface = 'Grass'"
+    elif bat_game_split == "On Turf":
+        bat_split_join = "LEFT JOIN silver.venues v ON sg.venue_id = v.venue_id"
+        bat_split_filter = "AND v.surface = 'Turf'"
 
     # MODE() replaced with correlated subquery; ANY_VALUE() replaced with MIN()
     batting_sql = f"""
@@ -208,10 +237,12 @@ with hit_tab:
         JOIN silver.players       p ON gb.player_id  = p.player_id
         JOIN gold.dim_team        t ON gb.team_id    = t.team_id
                                    AND sg.season_year = t.season_year
+        {bat_split_join}
         WHERE sg.season_year = {season}
           AND sg.game_type IN {game_type_sql}
           AND sg.status = 'Final'
           {shared_extra}
+          {bat_split_filter}
         GROUP BY p.player_id, p.full_name
     """
 
@@ -227,9 +258,17 @@ with hit_tab:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 with pitch_tab:
-    pc1, pc2, pc3 = st.columns([1.5, 1.5, 1])
+    pc1, pc2, pc3 = st.columns([1.2, 1, 0.8])
     with pc1:
-        role = st.selectbox("Role", ["All", "Starters", "Relievers"])
+        game_split = st.selectbox("Game Split", [
+            "All Games",
+            "Home Games",
+            "Away Games",
+            "Day Games",
+            "Night Games",
+            "On Grass",
+            "On Turf"
+        ])
     with pc2:
         pit_sort_options = list(PIT_SORT)
         pit_default_sort = st.session_state.get("leaders_pit_sort", pit_sort_options[0])
@@ -244,11 +283,24 @@ with pitch_tab:
 
     pit_col, pit_desc = PIT_SORT[pit_sort_label]
 
-    role_filter = ""
-    if role == "Starters":
-        role_filter = "HAVING SUM(gp.games_started) > 0"
-    elif role == "Relievers":
-        role_filter = "HAVING SUM(gp.games_started) = 0"
+    # Build game split filter
+    split_filter = ""
+    split_join = ""
+    
+    if game_split == "Home Games":
+        split_filter = "AND gp.is_home = 1"
+    elif game_split == "Away Games":
+        split_filter = "AND gp.is_home = 0"
+    elif game_split == "Day Games":
+        split_filter = "AND DATEPART(HOUR, sg.game_datetime) < 17"
+    elif game_split == "Night Games":
+        split_filter = "AND DATEPART(HOUR, sg.game_datetime) >= 17"
+    elif game_split == "On Grass":
+        split_join = "LEFT JOIN silver.venues v ON sg.venue_id = v.venue_id"
+        split_filter = "AND v.surface = 'Grass'"
+    elif game_split == "On Turf":
+        split_join = "LEFT JOIN silver.venues v ON sg.venue_id = v.venue_id"
+        split_filter = "AND v.surface = 'Turf'"
 
     pitching_sql = f"""
         SELECT
@@ -283,12 +335,13 @@ with pitch_tab:
         JOIN silver.players         p ON gp.player_id  = p.player_id
         JOIN gold.dim_team          t ON gp.team_id    = t.team_id
                                      AND sg.season_year = t.season_year
+        {split_join}
         WHERE sg.season_year = {season}
           AND sg.game_type IN {game_type_sql}
           AND sg.status = 'Final'
           {shared_extra}
+          {split_filter}
         GROUP BY gp.player_id, p.full_name
-        {role_filter}
     """
 
     try:
@@ -349,23 +402,23 @@ with hit_tab:
             width="stretch",
             hide_index=True,
             column_config={
-                "rank":    st.column_config.NumberColumn("#",    width="small"),
-                "player":  st.column_config.TextColumn("Player", width="small"),
-                "team":    st.column_config.TextColumn("Team",   width="small"),
-                "g":       st.column_config.NumberColumn("G",    width="small"),
-                "ab":      st.column_config.NumberColumn("AB",   width="small"),
-                "r":       st.column_config.NumberColumn("R",    width="small"),
-                "h":       st.column_config.NumberColumn("H",    width="small"),
-                "doubles": st.column_config.NumberColumn("2B",   width="small"),
-                "triples": st.column_config.NumberColumn("3B",   width="small"),
-                "hr":      st.column_config.NumberColumn("HR",   width="small"),
-                "rbi":     st.column_config.NumberColumn("RBI",  width="small"),
-                "bb":      st.column_config.NumberColumn("BB",   width="small"),
-                "so":      st.column_config.NumberColumn("SO",   width="small"),
-                "avg":     st.column_config.TextColumn("AVG",   width="small"),
-                "obp":     st.column_config.TextColumn("OBP",   width="small"),
-                "slg":     st.column_config.TextColumn("SLG",   width="small"),
-                "ops":     st.column_config.TextColumn("OPS",   width="small"),
+                "rank":    st.column_config.NumberColumn("#",    width=20),
+                "player":  st.column_config.TextColumn("Player", width=200),
+                "team":    st.column_config.TextColumn("Team",   width=20),
+                "g":       st.column_config.NumberColumn("G",    width=20),
+                "ab":      st.column_config.NumberColumn("AB",   width=20),
+                "r":       st.column_config.NumberColumn("R",    width=20),
+                "h":       st.column_config.NumberColumn("H",    width=20),
+                "doubles": st.column_config.NumberColumn("2B",   width=20),
+                "triples": st.column_config.NumberColumn("3B",   width=20),
+                "hr":      st.column_config.NumberColumn("HR",   width=20),
+                "rbi":     st.column_config.NumberColumn("RBI",  width=20),
+                "bb":      st.column_config.NumberColumn("BB",   width=20),
+                "so":      st.column_config.NumberColumn("SO",   width=20),
+                "avg":     st.column_config.TextColumn("AVG",   width=20),
+                "obp":     st.column_config.TextColumn("OBP",   width=20),
+                "slg":     st.column_config.TextColumn("SLG",   width=20),
+                "ops":     st.column_config.TextColumn("OPS",   width=20),
             },
         )
         st.caption(f"{len(df_bat):,} players — sorted by {bat_sort_label}")
@@ -416,27 +469,27 @@ with pitch_tab:
             width="stretch",
             hide_index=True,
             column_config={
-                "rank":      st.column_config.NumberColumn("#",     width="small"),
-                "full_name": st.column_config.TextColumn("Player",  width="small"),
-                "team":      st.column_config.TextColumn("Team",    width="small"),
-                "g":         st.column_config.NumberColumn("G",     width="small"),
-                "gs":        st.column_config.NumberColumn("GS",    width="small"),
-                "w":         st.column_config.NumberColumn("W",     width="small"),
-                "l":         st.column_config.NumberColumn("L",     width="small"),
-                "sv":        st.column_config.NumberColumn("SV",    width="small"),
-                "hld":       st.column_config.NumberColumn("HLD",   width="small"),
-                "bs":        st.column_config.NumberColumn("BS",    width="small"),
-                "ip":        st.column_config.TextColumn("IP",      width="small"),
-                "h":         st.column_config.NumberColumn("H",     width="small"),
-                "r":         st.column_config.NumberColumn("R",     width="small"),
-                "er":        st.column_config.NumberColumn("ER",    width="small"),
-                "hr":        st.column_config.NumberColumn("HR",    width="small"),
-                "bb":        st.column_config.NumberColumn("BB",    width="small"),
-                "so":        st.column_config.NumberColumn("SO",    width="small"),
-                "era":       st.column_config.NumberColumn("ERA",   format="%.2f", width="small"),
-                "whip":      st.column_config.NumberColumn("WHIP",  format="%.3f", width="small"),
-                "k9":        st.column_config.NumberColumn("K/9",   format="%.1f", width="small"),
-                "bb9":       st.column_config.NumberColumn("BB/9",  format="%.1f", width="small"),
+                "rank":      st.column_config.NumberColumn("#",     width=20),
+                "full_name": st.column_config.TextColumn("Player",  width=200),
+                "team":      st.column_config.TextColumn("Team",    width=20),
+                "g":         st.column_config.NumberColumn("G",     width=20),
+                "gs":        st.column_config.NumberColumn("GS",    width=20),
+                "w":         st.column_config.NumberColumn("W",     width=20),
+                "l":         st.column_config.NumberColumn("L",     width=20),
+                "sv":        st.column_config.NumberColumn("SV",    width=20),
+                "hld":       st.column_config.NumberColumn("HLD",   width=20),
+                "bs":        st.column_config.NumberColumn("BS",    width=20),
+                "ip":        st.column_config.TextColumn("IP",      width=20),
+                "h":         st.column_config.NumberColumn("H",     width=20),
+                "r":         st.column_config.NumberColumn("R",     width=20),
+                "er":        st.column_config.NumberColumn("ER",    width=20),
+                "hr":        st.column_config.NumberColumn("HR",    width=20),
+                "bb":        st.column_config.NumberColumn("BB",    width=20),
+                "so":        st.column_config.NumberColumn("SO",    width=20),
+                "era":       st.column_config.NumberColumn("ERA",   format="%.2f", width=20),
+                "whip":      st.column_config.NumberColumn("WHIP",  format="%.3f", width=20),
+                "k9":        st.column_config.NumberColumn("K/9",   format="%.1f", width=20),
+                "bb9":       st.column_config.NumberColumn("BB/9",  format="%.1f", width=20),
             },
         )
         st.caption(f"{len(df_pit):,} pitchers — sorted by {pit_sort_label}")
