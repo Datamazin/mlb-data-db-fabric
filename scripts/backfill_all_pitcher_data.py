@@ -70,12 +70,12 @@ async def main():
         
         logger.info("Extraction complete. Loading into silver.game_pitching...")
         
-        # Find bronze files (they're in year/month folders)
+        # Find bronze files (they're in year/month folders under games, not game_feed)
         bronze_files = []
         for row in missing_games:
             year = row[2]
             month = row[1].month
-            pattern = f"{bronze_root}/game_feed/year={year}/month={month:02d}/*.parquet"
+            pattern = f"{bronze_root}/games/year={year}/month={month:02d}/*.parquet"
             files = fs.glob(pattern)
             bronze_files.extend(files)
         
