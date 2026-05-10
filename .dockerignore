@@ -1,0 +1,55 @@
+# Git
+.git
+.gitignore
+.github
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv
+.pytest_cache
+*.egg-info
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Documentation
+*.md
+docs/
+html/
+
+# Data and logs
+data/
+logs/
+*.log
+
+# Notebooks (optional - remove if you want to include them)
+notebooks/
+
+# Test files
+tests/
+.pytest_cache/
+
+# Environment files (secrets should be passed via container env vars)
+.env
+.streamlit/secrets.toml
+
+# Build artifacts
+.work-folder-info
+.vfscache
+.vfsmeta
+
+# Fabric workspace folders
+12183eb0-a890-4e7a-9a2d-39d4ace0125d/
+
+# Misc
+Makefile
+.claude/
+.devcontainer/
+.stubs/
